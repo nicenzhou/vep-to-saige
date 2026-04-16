@@ -8,7 +8,7 @@ Convert VEP-annotated VCF files into SAIGE-compatible gene group files for rare 
 
 ```bash
 # Clone and setup
-git clone https://github.com/yourusername/vep-to-saige.git
+git clone https://github.com/nicenzhou/vep-to-saige.git
 cd vep-to-saige
 sed -i 's/\r$//' *.sh  # Fix Windows line endings if needed
 chmod +x *.sh
