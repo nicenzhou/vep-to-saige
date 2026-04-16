@@ -104,8 +104,8 @@ Convert annotations to SAIGE format with quality filtering and duplicate handlin
 SAIGE cannot take one single variant with two or more different annotations. This will keep the annotation based on the priority you desire.
 | Mode | Behavior |
 |------|----------|
-| ```lof,missense,synonymous``` | Keep highest priority (default) |
-| ```missense,lof,synonymous``` | Prioritize missense |
+| ```lof,missense,synonymous``` | Keep highest priority; lof>missense>synonymous (default) |
+| ```missense,lof,synonymous``` | Prioritize missense; missense>lof>synonymous |
 | ```keepall``` | Keep all annotations separately |
 
 **Examples:**
