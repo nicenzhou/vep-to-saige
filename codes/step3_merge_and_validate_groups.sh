@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Script: merge_and_validate_groups.sh
+# Script: step3_merge_and_validate_groups.sh
 # Description: Merge all chromosome group files in order
-# Usage: merge_and_validate_groups.sh output_file [input_dir] [pattern]
+# Usage: step3_merge_and_validate_groups.sh output_file [input_dir] [pattern]
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ set -euo pipefail
 
 if [ $# -lt 1 ]; then
     cat << 'EOF'
-Usage: merge_and_validate_groups.sh <output_file> [input_dir] [pattern]
+Usage: step3_merge_and_validate_groups.sh <output_file> [input_dir] [pattern]
 
 Description:
   Merge all chromosome group files in chromosomal order (1-22 or 01-22).
@@ -29,16 +29,16 @@ Pattern Options:
 
 Examples:
   # Auto-detect in current directory
-  ./merge_and_validate_groups.sh all_genes_groups.txt
+  ./step3_merge_and_validate_groups.sh all_genes_groups.txt
 
   # Specify input directory
-  ./merge_and_validate_groups.sh all_genes.txt ./results
+  ./step3_merge_and_validate_groups.sh all_genes.txt ./results
 
   # Specify directory and custom pattern
-  ./merge_and_validate_groups.sh output.txt ./data "custom_chr*_groups.txt"
+  ./step3_merge_and_validate_groups.sh output.txt ./data "custom_chr*_groups.txt"
 
   # Use full paths
-  ./merge_and_validate_groups.sh /path/to/output.txt /path/to/input
+  ./step3_merge_and_validate_groups.sh /path/to/output.txt /path/to/input
 
 Output:
   - All chromosome files merged in order
