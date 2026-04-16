@@ -101,7 +101,9 @@ Convert annotations to SAIGE format with quality filtering and duplicate handlin
 - ```lof+missense``` - LoF and missense
 
 **Priority Modes:**
+
 SAIGE cannot take one single variant with two or more different annotations. This will keep the annotation based on the priority you desire.
+
 | Mode | Behavior |
 |------|----------|
 | ```lof,missense,synonymous``` | Keep highest priority; lof>missense>synonymous (default) |
@@ -177,8 +179,8 @@ for chr in {1..22}; do
   ./step1_vep_ann_clean.sh \
     /path/to/chr${chr}.vcf.gz \
     chr${chr}_anno.txt \
-    4 \
-    vep_lof
+    1 \
+    loftee_only
 done
 
 # Step 2: Create gene groups
@@ -187,11 +189,13 @@ for chr in {1..22}; do
     chr${chr}_anno.txt \
     chr${chr}_groups.txt \
     all \
-    keepall
+    lof,missense,synonymous
 done
 
 # Step 3: Merge
-./step3_merge_and_validate_groups.sh genome_wide_groups.txt .
+./step3_merge_and_validate_groups.sh /path/to/output/genome_wide_groups.txt \
+    path/to/folder/for/groupfiles \
+    chr*_groups.txt
 ```
 
 ---
