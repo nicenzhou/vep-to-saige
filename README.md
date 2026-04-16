@@ -1,4 +1,4 @@
-# VEP to SAIGE Gene Groups Pipeline
+# VEP Annotations to SAIGE Gene Groups Pipeline
 
 Convert VEP-annotated VCF files into SAIGE-compatible gene group files for rare variant burden testing.
 
