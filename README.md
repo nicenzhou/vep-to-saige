@@ -14,9 +14,9 @@ sed -i 's/\r$//' *.sh  # Fix Windows line endings if needed
 chmod +x *.sh
 
 # Run pipeline
-./vep_ann_clean.sh input.vcf.gz chr1_anno.txt 4 vep_lof
-./create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
-./merge_and_validate_groups.sh all_genes.txt .
+./step1_vep_ann_clean.sh input.vcf.gz chr1_anno.txt 4 vep_lof
+./step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
+./step3_merge_and_validate_groups.sh all_genes.txt .
 ```
 
 ---
@@ -37,7 +37,7 @@ Extract and classify variants by functional impact.
 
 **Usage:**
 ```bash
-./vep_ann_clean.sh <input.vcf.gz> <output.txt> [threads] [lof_mode]
+./step1_vep_ann_clean.sh <input.vcf.gz> <output.txt> [threads] [lof_mode]
 ```
 
 **LoF Modes:**
@@ -66,14 +66,14 @@ Extract and classify variants by functional impact.
 **Examples:**
 ```bash
 # Default VEP LoF mode
-./vep_ann_clean.sh chr1.vcf.gz chr1_anno.txt 4
+./step1_vep_ann_clean.sh chr1.vcf.gz chr1_anno.txt 4
 
 # LOFTEE high-confidence only
-./vep_ann_clean.sh chr1.vcf.gz chr1_anno.txt 4 loftee_only
+./step1_vep_ann_clean.sh chr1.vcf.gz chr1_anno.txt 4 loftee_only
 
 # Batch processing
 for chr in {1..22}; do
-  ./vep_ann_clean.sh chr${chr}.vcf.gz chr${chr}_anno.txt 4 vep_lof
+  ./step1_vep_ann_clean.sh chr${chr}.vcf.gz chr${chr}_anno.txt 4 vep_lof
 done
 ```
 
@@ -90,7 +90,7 @@ Convert annotations to SAIGE format with quality filtering and duplicate handlin
 
 **Usage:**
 ```bash
-./create_gene_groups.sh <input_anno.txt> <output_groups.txt> [filter] [priority]
+./step2_create_gene_groups.sh <input_anno.txt> <output_groups.txt> [filter] [priority]
 ```
 
 **Annotation Filters:**
@@ -111,17 +111,17 @@ Convert annotations to SAIGE format with quality filtering and duplicate handlin
 **Examples:**
 ```bash
 # Default priority (lof > missense > synonymous)
-./create_gene_groups.sh chr1_anno.txt chr1_groups.txt
+./step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt
 
 # Keep all annotations
-./create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
+./step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
 
 # LoF variants only
-./create_gene_groups.sh chr1_anno.txt chr1_lof.txt lof
+./step2_create_gene_groups.sh chr1_anno.txt chr1_lof.txt lof
 
 # Batch with keepall
 for chr in {01..22}; do
-  ./create_gene_groups.sh chr${chr}_anno.txt chr${chr}_groups.txt all keepall
+  ./step2_create_gene_groups.sh chr${chr}_anno.txt chr${chr}_groups.txt all keepall
 done
 ```
 
@@ -146,19 +146,19 @@ Merge chromosome files into genome-wide file.
 
 **Usage:**
 ```bash
-./merge_and_validate_groups.sh <output_file> [input_dir] [pattern]
+./step3_merge_and_validate_groups.sh <output_file> [input_dir] [pattern]
 ```
 
 **Examples:**
 ```bash
 # Auto-detect in current directory
-./merge_and_validate_groups.sh all_genes_groups.txt
+./step3_merge_and_validate_groups.sh all_genes_groups.txt
 
 # Specify input directory
-./merge_and_validate_groups.sh all_genes.txt ./results
+./step3_merge_and_validate_groups.sh all_genes.txt ./results
 
 # Custom pattern
-./merge_and_validate_groups.sh output.txt ./data "custom_chr*_groups.txt"
+./step3_merge_and_validate_groups.sh output.txt ./data "custom_chr*_groups.txt"
 ```
 
 **Features:**
@@ -174,7 +174,7 @@ Merge chromosome files into genome-wide file.
 ```bash
 # Step 1: Extract annotations (all chromosomes)
 for chr in {1..22}; do
-  ./vep_ann_clean.sh \
+  ./step1_vep_ann_clean.sh \
     /path/to/chr${chr}.vcf.gz \
     chr${chr}_anno.txt \
     4 \
@@ -183,7 +183,7 @@ done
 
 # Step 2: Create gene groups
 for chr in {1..22}; do
-  ./create_gene_groups.sh \
+  ./step2_create_gene_groups.sh \
     chr${chr}_anno.txt \
     chr${chr}_groups.txt \
     all \
@@ -191,7 +191,7 @@ for chr in {1..22}; do
 done
 
 # Step 3: Merge
-./merge_and_validate_groups.sh genome_wide_groups.txt .
+./step3_merge_and_validate_groups.sh genome_wide_groups.txt .
 ```
 
 ---
@@ -270,14 +270,14 @@ chmod +x *.sh
 ```bash
 for chr in {1..22}; do
   bsub -q normal -n 4 -R "rusage[mem=8GB]" \
-    "./vep_ann_clean.sh chr${chr}.vcf.gz chr${chr}_anno.txt 4 vep_lof"
+    "./step1_vep_ann_clean.sh chr${chr}.vcf.gz chr${chr}_anno.txt 4 vep_lof"
 done
 ```
 
 **Input file not found:**
 ```bash
 # Use absolute paths
-./vep_ann_clean.sh /full/path/to/input.vcf.gz output.txt
+./step1_vep_ann_clean.sh /full/path/to/input.vcf.gz output.txt
 ```
 
 ---
