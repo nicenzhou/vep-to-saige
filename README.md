@@ -101,7 +101,7 @@ Convert annotations to SAIGE format with quality filtering and duplicate handlin
 - ```lof+missense``` - LoF and missense
 
 **Priority Modes:**
-
+SAIGE cannot take one single variant with two or more different annotations. This will keep the annotation based on the priority you desire.
 | Mode | Behavior |
 |------|----------|
 | ```lof,missense,synonymous``` | Keep highest priority (default) |
