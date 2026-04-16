@@ -144,7 +144,7 @@ GENE1 anno lof missense lof
 
 ### Step 3: Merge and Validate
 
-Merge chromosome files into genome-wide file.
+Merge chromosome files into a genome-wide file.
 
 **Usage:**
 ```bash
@@ -193,9 +193,10 @@ for chr in {1..22}; do
 done
 
 # Step 3: Merge
-./step3_merge_and_validate_groups.sh /path/to/output/genome_wide_groups.txt \
-    path/to/folder/for/groupfiles \
-    chr*_groups.txt
+./step3_merge_and_validate_groups.sh \
+  /path/to/output/genome_wide_groups.txt \
+  /path/to/folder/for/groupfiles \
+  chr*_groups.txt
 ```
 
 ---
