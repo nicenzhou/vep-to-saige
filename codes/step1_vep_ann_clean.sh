@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script: vep_ann_clean.sh
+# Script: step1_vep_ann_clean.sh
 # Description: VEP annotation extraction with configurable LoF definition and deduplication
 # Usage: vep_ann_clean.sh input.vcf.gz output.txt [threads] [lof_mode]
 
@@ -22,7 +22,7 @@ LOF_MODE="${4:-vep_lof}"
 
 if [ -z "$INPUT" ] || [ -z "$OUTPUT" ]; then
     cat << 'EOF'
-Usage: vep_ann_clean.sh <input.vcf.gz> <output.txt> [threads] [lof_mode]
+Usage: step1_vep_ann_clean.sh <input.vcf.gz> <output.txt> [threads] [lof_mode]
 
 Description:
   Extract VEP annotations with configurable LoF definition.
@@ -54,9 +54,9 @@ Deduplication:
   only one row is kept to minimize file size.
 
 Examples:
-  ./vep_ann_clean.sh input.vcf.gz output.txt 1
-  ./vep_ann_clean.sh input.vcf.gz output.txt 1 loftee_only
-  ./vep_ann_clean.sh input.vcf.gz output.txt 4 vep_lof
+  ./step1_vep_ann_clean.sh input.vcf.gz output.txt 1
+  ./step1_vep_ann_clean.sh input.vcf.gz output.txt 1 loftee_only
+  ./step1_vep_ann_clean.sh input.vcf.gz output.txt 4 vep_lof
 EOF
     exit 1
 fi
