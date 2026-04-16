@@ -2,7 +2,7 @@
 
 # Script: step2_create_gene_groups.sh
 # Description: Convert VEP annotations to SAIGE gene group format with quality filters and deduplication
-# Usage: create_gene_groups.sh input_annotations.txt output_groups.txt [annotation_filter] [priority]
+# Usage: step2_create_gene_groups.sh input_annotations.txt output_groups.txt [annotation_filter] [priority]
 
 set -euo pipefail
 
