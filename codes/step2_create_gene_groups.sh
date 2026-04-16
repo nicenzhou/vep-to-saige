@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script: create_gene_groups.sh
+# Script: step2_create_gene_groups.sh
 # Description: Convert VEP annotations to SAIGE gene group format with quality filters and deduplication
 # Usage: create_gene_groups.sh input_annotations.txt output_groups.txt [annotation_filter] [priority]
 
@@ -12,7 +12,7 @@ set -euo pipefail
 a
 if [ $# -lt 2 ]; then
     cat << 'EOF'
-Usage: create_gene_groups.sh <input_annotations.txt> <output_groups.txt> [annotation_filter] [priority]
+Usage: step2_create_gene_groups.sh <input_annotations.txt> <output_groups.txt> [annotation_filter] [priority]
 
 Description:
   Convert VEP annotation file to SAIGE gene group format.
@@ -60,26 +60,26 @@ Conflict file:
 
 Examples:
   # All annotations, default priority (lof > missense > synonymous)
-  ./create_gene_groups.sh chr01_clean.txt chr01_groups.txt
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_groups.txt
 
   # Only LoF variants
-  ./create_gene_groups.sh chr01_clean.txt chr01_lof.txt lof
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_lof.txt lof
 
   # All annotations, custom priority (missense highest)
-  ./create_gene_groups.sh chr01_clean.txt chr01_groups.txt all missense,lof,synonymous
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_groups.txt all missense,lof,synonymous
 
   # LoF + missense, prioritize LoF
-  ./create_gene_groups.sh chr01_clean.txt chr01_coding.txt lof+missense lof,missense
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_coding.txt lof+missense lof,missense
 
   # Keep all annotations, no priority resolution
-  ./create_gene_groups.sh chr01_clean.txt chr01_groups.txt all keepall
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_groups.txt all keepall
 
   # Keep all LoF annotations
-  ./create_gene_groups.sh chr01_clean.txt chr01_lof.txt lof keepall
+  ./step2_create_gene_groups.sh chr01_clean.txt chr01_lof.txt lof keepall
 
   # Batch process chromosomes
   for chr in {01..22}; do
-    ./create_gene_groups.sh /data/data1/chr$${chr}.txt output_chr$${chr}.txt
+    ./step2_create_gene_groups.sh /data/data1/chr$${chr}.txt output_chr$${chr}.txt
   done
 EOF
     exit 1
