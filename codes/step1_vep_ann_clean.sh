@@ -2,7 +2,7 @@
 
 # Script: step1_vep_ann_clean.sh
 # Description: VEP annotation extraction with configurable LoF definition and deduplication
-# Usage: vep_ann_clean.sh input.vcf.gz output.txt [threads] [lof_mode]
+# Usage: step1_vep_ann_clean.sh input.vcf.gz output.txt [threads] [lof_mode]
 
 set -euo pipefail
 trap '' PIPE
