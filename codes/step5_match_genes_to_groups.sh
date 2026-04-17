@@ -74,10 +74,6 @@ Examples:
   # Force regenerate with 50kb buffer
   ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 50 yes
 
-Next Steps:
-  After running this script, extract genotypes using:
-  ./extract_genotypes_plink2.sh <bfile_prefix> plink_regions <output_dir>
-
 EOF
     exit 1
 fi
@@ -136,7 +132,7 @@ echo "Configuration:"
 echo "  Gene coordinates: $GENE_COORDS_DIR"
 echo "  Group file: $GROUP_FILE"
 echo "  Output directory: $OUTPUT_DIR"
-echo "  Buffer size: $${BUFFER_KB}kb (±$$(echo "$BUFFER_KB * 1000" | bc) bp)"
+echo "  Buffer size: $${BUFFER_KB}kb (±$$((BUFFER_KB * 1000)) bp)"
 echo "  Force regenerate: $FORCE_REGEN"
 if [ "$FORCE_REGEN" = "yes" ]; then
     echo "  Regenerate buffer: $${BUFFER_KB}kb + 10kb safety = $$((BUFFER_KB + 10))kb total"
@@ -321,6 +317,7 @@ if [ "$$FORCE_REGEN" = "yes" ] && [ "$$TOTAL_MISSING" -gt 0 ]; then
             missing[\$1] = 1
         }
         close(missing_file)
+        regen_count = 0
     }
     
     {
@@ -331,6 +328,7 @@ if [ "$$FORCE_REGEN" = "yes" ] && [ "$$TOTAL_MISSING" -gt 0 ]; then
             # Only process missing genes
             if (gene in missing) {
                 delete positions
+                delete chrs
                 n_vars = 0
                 
                 # Extract variant positions (skip first two fields: gene name and "var")
@@ -343,8 +341,10 @@ if [ "$$FORCE_REGEN" = "yes" ] && [ "$$TOTAL_MISSING" -gt 0 ]; then
                         chr = parts[1]
                         pos = parts[2]
                         
-                        # Store position
-                        positions[n_vars++] = pos
+                        # Store position and chromosome
+                        positions[n_vars] = pos
+                        chrs[n_vars] = chr
+                        n_vars++
                     }
                 }
                 
@@ -353,6 +353,7 @@ if [ "$$FORCE_REGEN" = "yes" ] && [ "$$TOTAL_MISSING" -gt 0 ]; then
                     # Find min and max positions
                     min_pos = positions[0]
                     max_pos = positions[0]
+                    chr = chrs[0]
                     
                     for (j = 1; j < n_vars; j++) {
                         if (positions[j] < min_pos) min_pos = positions[j]
@@ -392,5 +393,231 @@ if [ "$$FORCE_REGEN" = "yes" ] && [ "$$TOTAL_MISSING" -gt 0 ]; then
             # Extract chromosome from region (format: chr:start-end)
             CHR=$$(echo "$$region" | cut -d':' -f1)
             
-            # Append to chromosome region file
-            echo -e "$${region}\t$${gene}\t${source
+            # Append to chromosome region file (create if doesn't exist)
+            echo -e "${region}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${CHR}_regions.txt"
+            
+            # Also append to gene list (create if doesn't exist)
+            echo "$gene" >> "$OUTPUT_DIR/chr${CHR}_gene_list.txt"
+            
+        done < "$OUTPUT_DIR/regenerated_regions_temp.txt"
+        
+        # Add regenerated genes to matched genes
+        cat "$OUTPUT_DIR/regenerated_genes.txt" >> "$OUTPUT_DIR/matched_genes.txt"
+        
+        # Update totals
+        TOTAL_MATCHED=$((TOTAL_MATCHED + TOTAL_REGENERATED))
+        TOTAL_MISSING=$((TOTAL_MISSING - TOTAL_REGENERATED))
+        
+        # Sort and deduplicate chromosome files
+        for chr in {1..22} X Y; do
+            if [ -f "$OUTPUT_DIR/chr${chr}_regions.txt" ]; then
+                sort -u "$OUTPUT_DIR/chr${chr}_regions.txt" -o "$OUTPUT_DIR/chr${chr}_regions.txt"
+            fi
+            if [ -f "$OUTPUT_DIR/chr${chr}_gene_list.txt" ]; then
+                sort -u "$OUTPUT_DIR/chr${chr}_gene_list.txt" -o "$OUTPUT_DIR/chr${chr}_gene_list.txt"
+            fi
+        done
+        
+        echo "  Successfully regenerated $TOTAL_REGENERATED genes"
+        echo ""
+        
+        # Update summary file with regenerated info
+        {
+            echo ""
+            echo "Regenerated Genes:"
+            echo "  Total regenerated: $TOTAL_REGENERATED"
+            echo "  Buffer applied: ${SOFT_BUFFER_KB}kb (${BUFFER_KB}kb + 10kb safety)"
+            echo ""
+        } >> "$SUMMARY_FILE"
+        
+        # Cleanup temp file
+        rm -f "$OUTPUT_DIR/regenerated_regions_temp.txt"
+    else
+        echo "  No genes could be regenerated from variant positions"
+        echo ""
+    fi
+fi
+
+#==========================================
+# Update Missing Genes List After Regeneration
+#==========================================
+
+if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
+    echo "Step 5: Updating missing genes list after regeneration..."
+    
+    # Re-extract all matched gene symbols (including regenerated)
+    cut -f1 "$OUTPUT_DIR/matched_genes.txt" | sort -u > "$OUTPUT_DIR/all_matched_genes.txt"
+    
+    # Find genes still missing
+    comm -23 \
+        <(sort "$OUTPUT_DIR/genes_in_groups.txt") \
+        <(sort "$OUTPUT_DIR/all_matched_genes.txt") \
+        > "$OUTPUT_DIR/missing_genes.txt"
+    
+    TOTAL_MISSING=$(wc -l < "$OUTPUT_DIR/missing_genes.txt")
+    
+    echo "  Updated missing genes: $TOTAL_MISSING"
+    echo ""
+fi
+
+#==========================================
+# Generate Summary Report
+#==========================================
+
+{
+    echo ""
+    echo "=========================================="
+    echo "Overall Summary"
+    echo "=========================================="
+    echo "Genes in group file:  $TOTAL_IN_GROUPS"
+    echo "Genes matched:        $TOTAL_MATCHED"
+    if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
+        echo "  - From coordinates: $((TOTAL_MATCHED - TOTAL_REGENERATED))"
+        echo "  - Regenerated:      $TOTAL_REGENERATED"
+    fi
+    echo "Genes missing:        $TOTAL_MISSING"
+    echo "Match rate:           $(awk -v m="$TOTAL_MATCHED" -v t="$TOTAL_IN_GROUPS" 'BEGIN {printf "%.2f%%", (m/t)*100}')"
+    echo ""
+} >> "$SUMMARY_FILE"
+
+#==========================================
+# Final Report
+#==========================================
+
+echo "=========================================="
+echo "Gene Matching Complete"
+echo "=========================================="
+echo "Genes in group file:  $TOTAL_IN_GROUPS"
+echo "Genes matched:        $TOTAL_MATCHED ($(awk -v m="$TOTAL_MATCHED" -v t="$TOTAL_IN_GROUPS" 'BEGIN {printf "%.1f%%", (m/t)*100}'))"
+
+if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
+    echo "  - From coordinates: $((TOTAL_MATCHED - TOTAL_REGENERATED))"
+    echo "  - Regenerated:      $TOTAL_REGENERATED"
+fi
+
+echo "Genes missing:        $TOTAL_MISSING"
+echo ""
+
+echo "Output Files Generated:"
+echo "----------------------------------------"
+
+# List region files
+REGION_FILES=$(ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | wc -l)
+if [ "$REGION_FILES" -gt 0 ]; then
+    echo "  Region files (PLINK2 format):"
+    ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | while read f; do
+        count=$(wc -l < "$f")
+        printf "    %-30s %6s regions\n" "$(basename $f)" "$count"
+    done
+    echo ""
+fi
+
+# List other outputs
+echo "  Summary files:"
+printf "    %-30s %6s genes\n" "matched_genes.txt" "$TOTAL_MATCHED"
+printf "    %-30s %6s genes\n" "missing_genes.txt" "$TOTAL_MISSING"
+
+if [ "$FORCE_REGEN" = "yes" ] && [ -f "$OUTPUT_DIR/regenerated_genes.txt" ]; then
+    printf "    %-30s %6s genes\n" "regenerated_genes.txt" "$TOTAL_REGENERATED"
+fi
+
+printf "    %-30s\n" "matching_summary.txt"
+printf "    %-30s\n" "matching.log"
+echo ""
+
+#==========================================
+# Missing Genes Report
+#==========================================
+
+if [ "$TOTAL_MISSING" -gt 0 ]; then
+    echo "WARNING: $TOTAL_MISSING genes could not be matched"
+    echo ""
+    echo "  Possible reasons:"
+    echo "    - Gene symbols don't match Ensembl nomenclature"
+    echo "    - Genes are on non-autosomal chromosomes (X, Y, MT)"
+    echo "    - Genes are not in the annotation release used"
+    echo "    - Typos or outdated gene symbols"
+    if [ "$FORCE_REGEN" = "yes" ]; then
+        echo "    - No variants found for these genes in the group file"
+    fi
+    echo ""
+    echo "  Missing genes saved to:"
+    echo "    $OUTPUT_DIR/missing_genes.txt"
+    echo ""
+    
+    if [ "$TOTAL_MISSING" -le 20 ]; then
+        echo "  All missing genes:"
+        cat "$OUTPUT_DIR/missing_genes.txt" | sed 's/^/    /'
+    else
+        echo "  First 20 missing genes:"
+        head -20 "$OUTPUT_DIR/missing_genes.txt" | sed 's/^/    /'
+        echo "    ... and $((TOTAL_MISSING - 20)) more"
+    fi
+    echo ""
+    
+    if [ "$FORCE_REGEN" = "no" ]; then
+        echo "  TIP: Try running with force_regen=yes to regenerate missing genes"
+        echo "     from variant positions:"
+        echo "     ./step5_match_genes_to_groups.sh \\"
+        echo "       $GENE_COORDS_DIR \\"
+        echo "       $GROUP_FILE \\"
+        echo "       $OUTPUT_DIR \\"
+        echo "       $BUFFER_KB \\"
+        echo "       yes"
+        echo ""
+    fi
+fi
+
+#==========================================
+# Regenerated Genes Report
+#==========================================
+
+if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
+    echo "=========================================="
+    echo "Regenerated Genes Summary"
+    echo "=========================================="
+    echo "Total regenerated: $TOTAL_REGENERATED genes"
+    echo "Buffer applied:    ${SOFT_BUFFER_KB}kb (${BUFFER_KB}kb user + 10kb safety)"
+    echo ""
+    
+    if [ "$TOTAL_REGENERATED" -le 20 ]; then
+        echo "All regenerated genes:"
+        cut -f1 "$OUTPUT_DIR/regenerated_genes.txt" | sed 's/^/  /'
+    else
+        echo "First 20 regenerated genes:"
+        cut -f1 "$OUTPUT_DIR/regenerated_genes.txt" | head -20 | sed 's/^/  /'
+        echo "  ... and $((TOTAL_REGENERATED - 20)) more"
+    fi
+    echo ""
+    echo "Details saved to:"
+    echo "  $OUTPUT_DIR/regenerated_genes.txt"
+    echo ""
+fi
+
+#==========================================
+# Sample Output Preview
+#==========================================
+
+echo "=========================================="
+echo "Sample Region File (chr1, first 5 lines):"
+echo "----------------------------------------"
+if [ -f "$OUTPUT_DIR/chr1_regions.txt" ]; then
+    head -5 "$OUTPUT_DIR/chr1_regions.txt" | awk '{printf "  %-35s %-15s %s\n", $1, $2, $3}'
+    echo ""
+else
+    echo "  (No chr1 regions generated)"
+    echo ""
+fi
+
+echo "=========================================="
+echo "Completed: $(date)"
+echo "=========================================="
+
+#==========================================
+# Cleanup Temporary Files
+#==========================================
+
+rm -f "$OUTPUT_DIR/genes_in_groups.txt"
+rm -f "$OUTPUT_DIR/all_matched_genes.txt"
+
+exit 0
