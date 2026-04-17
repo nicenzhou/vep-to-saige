@@ -14,9 +14,20 @@ sed -i 's/\r$//' *.sh  # Fix Windows line endings if needed
 chmod +x *.sh
 
 # Run pipeline
+
+# Steps 1-3: VEP to SAIGE groups
 ./step1_vep_ann_clean.sh input.vcf.gz chr1_anno.txt 4 vep_lof
 ./step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
 ./step3_merge_and_validate_groups.sh all_genes.txt .
+
+# Steps 4-7: Gene coordinates and genotype extraction [Optional; for large WGS; Requires Internet for Step 4] 
+./step4_download_gene_coords.sh 115 GRCh38 gene_coords
+tar -xzf gene_coords_ensembl115.tar.gz
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 10
+./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_pfiles vcf 16
+./step7_verify_extraction.sh gene_pfiles plink_regions
+
+# * Gene coords files are available in the gene_coords_ensembl115 folder on GitHub, where no regeneration is needed.
 ```
 
 ---
@@ -25,6 +36,7 @@ chmod +x *.sh
 
 - ```bcftools``` (VCF processing)
 - ```awk``` (GNU awk recommended)
+- ```plink2a``` (for genotype extraction, Step 6)
 - Bash 4.0+
 
 ---
@@ -73,7 +85,7 @@ Extract and classify variants by functional impact.
 
 # Batch processing
 for chr in {1..22}; do
-  ./step1_vep_ann_clean.sh chr${chr}.vcf.gz chr${chr}_anno.txt 4 vep_lof
+  ./step1_vep_ann_clean.sh chr$${chr}.vcf.gz chr$${chr}_anno.txt 4 vep_lof
 done
 ```
 
@@ -123,7 +135,7 @@ SAIGE cannot take one single variant with two or more different annotations. Thi
 
 # Batch with keepall
 for chr in {01..22}; do
-  ./step2_create_gene_groups.sh chr${chr}_anno.txt chr${chr}_groups.txt all keepall
+  ./step2_create_gene_groups.sh chr$${chr}_anno.txt chr$${chr}_groups.txt all keepall
 done
 ```
 
@@ -171,33 +183,143 @@ Merge chromosome files into a genome-wide file.
 
 ---
 
-## Complete Workflow
+### Step 4: Download Gene Coordinates (Require Internet)
 
+Download Ensembl gene coordinates to match with SAIGE group files.
+
+**Usage:**
 ```bash
-# Step 1: Extract annotations (all chromosomes)
-for chr in {1..22}; do
-  ./step1_vep_ann_clean.sh \
-    /path/to/chr${chr}.vcf.gz \
-    chr${chr}_anno.txt \
-    1 \
-    loftee_only
-done
-
-# Step 2: Create gene groups
-for chr in {1..22}; do
-  ./step2_create_gene_groups.sh \
-    chr${chr}_anno.txt \
-    chr${chr}_groups.txt \
-    all \
-    lof,missense,synonymous
-done
-
-# Step 3: Merge
-./step3_merge_and_validate_groups.sh \
-  /path/to/output/genome_wide_groups.txt \
-  /path/to/folder/for/groupfiles \
-  chr*_groups.txt
+./step4_download_gene_coords.sh [ensembl_version] [genome_build] [output_dir]
 ```
+
+**Arguments:**
+- ```ensembl_version``` - Ensembl release version (default: 115)
+- ```genome_build``` - GRCh38 or GRCh37 (default: GRCh38)
+- ```output_dir``` - Output directory (default: gene_coords)
+
+**Examples:**
+```bash
+# Download latest Ensembl coordinates
+./step4_download_gene_coords.sh 115 GRCh38
+```
+
+**Output:**
+- Per-chromosome gene coordinate files (```chr1_genes.txt```, ```chr2_genes.txt```, etc.)
+
+---
+
+### Step 5: Match Genes to Groups
+
+Match gene coordinates with SAIGE group files and create PLINK2a region files.
+
+**Usage:**
+```bash
+./step5_match_genes_to_groups.sh <gene_coords_dir> <group_file> <output_dir> [buffer_kb] [force_regen]
+```
+
+**Arguments:**
+- ```gene_coords_dir``` - Directory with ```chr*_genes.txt``` files
+- ```group_file``` - SAIGE group file (from Step 3)
+- ```output_dir``` - Output directory for region files
+- ```buffer_kb``` - Buffer around genes in kb (default: 10)
+- ```force_regen```  - Force regenerate missing genes: yes/no (default: no)
+
+**Force Regenerate Mode:**
+When ```force_regen=yes```, missing genes are regenerated using variant positions:
+
+- **Start position**: First variant position - buffer_kb - 10kb (soft buffer)
+- **End position**: Last variant position + buffer_kb + 10kb (soft buffer)
+- **Total buffer**: User-defined buffer + 10kb safety margin on each side
+- Missing genes are added to a separate ```regenerated_genes.txt``` file
+
+**Examples:**
+```bash
+# Extract transferred coordinates
+tar -xzf gene_coords_ensembl111.tar.gz
+
+# Match genes with 10kb buffer
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions
+
+# Custom 50kb buffer
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 50
+```
+
+**Output:**
+- ```chr*_regions.txt``` - PLINK2 region files per chromosome
+- ```matched_genes.txt``` - All matched genes with coordinates
+- ```missing_genes.txt``` - Genes not found in Ensembl
+
+---
+
+### Step 6: Extract Genotypes with PLINK2
+
+Extract genotypes for gene regions. Creates ONE BFILE/PFILE PER CHROMOSOME (efficient for SAIGE).
+
+**Usage:**
+```bash
+./step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [format] [threads]
+```
+
+**Arguments:**
+- ```input_dir``` - Directory with genotype files
+- ```regions_dir``` - Directory with region files (from Step 5)
+- ```output_dir``` - Output directory
+- ```format``` - Input format: auto, vcf, pgen, bgen, bed (default: auto)
+- ```threads``` - Number of threads (default: 4)
+
+**Supported Input Formats:**
+- **VCF**: ```chr1.vcf.gz```, ```chr2.vcf.gz```, ...
+- **PGEN**: ```chr1.pgen/pvar/psam```, ```chr2.pgen/pvar/psam```, ...
+- **BGEN**: ```chr1.bgen```, ```chr2.bgen```, ... (requires .sample file)
+- **BED**: ```chr1.bed/bim/fam```, ```chr2.bed/bim/fam```, ...
+
+**Examples:**
+```bash
+# Auto-detect format
+./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_pfiles
+
+# Specify VCF input, 16 threads
+./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_pfiles vcf 16
+
+# BGEN input
+./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_pfiles bgen 8
+
+# Convert to BGEN for SAIGE
+CONVERT_TO_BGEN=yes ./step6_extract_genotypes_plink2.sh /data/pgen plink_regions gene_bgen pgen 8
+```
+
+**Output:**
+- ```chr*_genes.pgen/pvar/psam``` - Extracted genotypes per chromosome (PGEN format)
+- ```extraction_summary.txt``` - Summary of extraction
+- Optional: BGEN format for direct SAIGE use
+
+---
+
+### Step 7: Verify Extraction
+
+Verify extraction quality and completeness.
+
+**Usage:**
+```bash
+./step7_verify_extraction.sh <gene_bfiles_dir> <regions_dir> [output_report]
+```
+
+**Examples:**
+```bash
+# Run verification
+./step7_verify_extraction.sh gene_pfiles plink_regions
+
+# Custom report name
+./step7_verify_extraction.sh gene_pfiles plink_regions my_qc_report.txt
+```
+
+**Output:**
+- Verification report with:
+  - Variant counts per chromosome
+  - Sample counts
+  - MAF distribution
+  - File sizes
+  - Missing genes (if any)
 
 ---
 
@@ -206,7 +328,7 @@ done
 **After Step 1:**
 ```bash
 # Check annotation distribution
-awk -F'\t' 'NR>1 {print $6}' chr1_anno.txt | sort | uniq -c
+awk -F'\t' 'NR>1 {print \$6}' chr1_anno.txt | sort | uniq -c
 ```
 
 **After Step 2:**
@@ -221,7 +343,7 @@ awk '{
 }' chr1_groups.txt
 
 # Check for duplicates
-awk '{if(NR%2==1) print $1}' chr1_groups.txt | sort | uniq -d
+awk '{if(NR%2==1) print \$1}' chr1_groups.txt | sort | uniq -d
 ```
 
 **After Step 3:**
@@ -230,7 +352,27 @@ awk '{if(NR%2==1) print $1}' chr1_groups.txt | sort | uniq -d
 wc -l all_genes_groups.txt  # Should be even
 
 # Count unique genes
-awk '{if(NR%2==1) print $1}' all_genes_groups.txt | sort -u | wc -l
+awk '{if(NR%2==1) print \$1}' all_genes_groups.txt | sort -u | wc -l
+```
+
+**After Step 5:**
+```bash
+# Check matched genes
+wc -l plink_regions/matched_genes.txt
+
+# Review missing genes
+cat plink_regions/missing_genes.txt
+```
+
+**After Step 6:**
+```bash
+# Check extraction summary
+column -t -s $'\t' gene_pfiles/extraction_summary.txt
+
+# Verify variant counts
+for chr in {1..22}; do
+  echo "chr$${chr}: $$(wc -l < gene_pfiles/chr${chr}_genes.pvar) variants"
+done
 ```
 
 ---
@@ -259,7 +401,8 @@ Rscript step2_SPAtests.R        \
      --is_output_markerList_in_groupTest=TRUE \
      --is_fastTest=TRUE
 ```
-*Full details see: https://saigegit.github.io/SAIGE-doc/docs/set_step2.html
+
+*Full details see: https://saigegit.github.io/SAIGE-doc/docs/set_step2.html*
  
 ---
 
@@ -285,6 +428,36 @@ done
 ./step1_vep_ann_clean.sh /full/path/to/input.vcf.gz output.txt
 ```
 
+**PLINK2 memory issues:**
+```bash
+# Increase memory limit
+plink2 --pfile input --memory 16000 --threads 8 ...
+```
+
+**Missing genes in Step 5:**
+```bash
+# Check Ensembl version matches VEP version
+# Review missing_genes.txt for outdated/retired gene symbols
+# Consider using alternative gene names or ENSG IDs
+```
+
+**Format detection fails in Step 6:**
+```bash
+# Manually specify format
+./step6_extract_genotypes_plink2.sh /data/geno plink_regions output vcf 8
+```
+
+**BGEN conversion for SAIGE:**
+```bash
+# Convert PGEN to BGEN (v1.2, 8-bit for SAIGE compatibility)
+plink2 --pfile chr1_genes \
+       --export bgen-1.2 bits=8 \
+       --out chr1_genes_bgen
+
+# Index BGEN file
+bgenix -g chr1_genes_bgen.bgen -index
+```
+
 ---
 
 ## Citation
@@ -293,6 +466,7 @@ done
 - **LOFTEE:** Karczewski et al., Nature (2020)
 - **SAIGE:** Zhou et al., Nature Genetics (2018)
 - **SAIGE-GENE+:** Zhou et al., Nature Genetics (2022)
+- **Ensembl:** Cunningham et al., Nucleic Acids Research (2022)
 
 ---
 
