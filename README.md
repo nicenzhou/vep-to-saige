@@ -289,7 +289,7 @@ CONVERT_TO_BGEN=yes ./step6_extract_genotypes_plink2.sh /data/pgen plink_regions
 ```
 
 **Output:**
-- ```chr*_genes.pgen/pvar/psam``` - Extracted genotypes per chromosome (PGEN format)
+- ```chr*_genes.bed/bim/fam`` - Extracted genotypes per chromosome (BFILE format)
 - ```extraction_summary.txt``` - Summary of extraction
 - Optional: BGEN format for direct SAIGE use
 
