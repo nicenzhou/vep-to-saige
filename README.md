@@ -223,6 +223,7 @@ Match gene coordinates with SAIGE group files and create PLINK2a region files.
 - ```output_dir``` - Output directory for region files
 - ```buffer_kb``` - Buffer around genes in kb (default: 10)
 - ```force_regen```  - Force regenerate missing genes: yes/no (default: no)
+- ```merge_regen``` - Merge regenerated genes with matched: yes/no (default: yes)
 
 **Force Regenerate Mode:**
 When ```force_regen=yes```, missing genes are regenerated using variant positions:
@@ -232,22 +233,63 @@ When ```force_regen=yes```, missing genes are regenerated using variant position
 - **Total buffer**: User-defined buffer + 10kb safety margin on each side
 - Missing genes are added to a separate ```regenerated_genes.txt``` file
 
+**Merge Options**:
+
+- **merge_regen=yes** (default): Regenerated genes are merged into main ```chr*_regions.txt``` files, sorted by genomic coordinates
+- **merge_regen=no**: Regenerated genes are saved to separate ```chr*_regions_recovered.txt``` files
+
 **Examples:**
 ```bash
 # Extract transferred coordinates
 tar -xzf gene_coords_ensembl111.tar.gz
 
-# Match genes with 10kb buffer
+# Basic usage - match genes with 10kb buffer (default settings)
 ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions
 
-# Custom 50kb buffer
+# Custom 50kb buffer without regeneration
 ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 50
+
+# Force regenerate missing genes and merge with matched genes
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 10 yes yes
+
+# Force regenerate missing genes but keep them separate
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 10 yes no
+
+# Custom 50kb buffer with regeneration and merge
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 50 yes yes
 ```
 
-**Output:**
-- ```chr*_regions.txt``` - PLINK2 region files per chromosome
+**Output Files (merge_regen=yes):**
+- ```chr*_regions.txt``` - PLINK2 region files per chromosome (matched + regenerated, sorted by coordinates)
+- ```chr*_gene_list.txt``` - Gene symbols for each chromosome
 - ```matched_genes.txt``` - All matched genes with coordinates
-- ```missing_genes.txt``` - Genes not found in Ensembl
+- ```regenerated_genes.txt``` - Regenerated genes with coordinates (if force_regen=yes)
+- ```missing_genes.txt``` - Genes still not found after regeneration
+- ```matching_summary.txt``` - Detailed summary statistics
+- ```matching.log``` - Complete processing log
+
+**Output Files (merge_regen=no):**
+- ```chr*_regions.txt``` - PLINK2 region files (matched genes only)
+- ```chr*_regions_recovered.txt``` - PLINK2 region files (regenerated genes only)
+- ```chr*_gene_list.txt``` - Gene symbols (matched genes only)
+- ```chr*_gene_list_recovered.txt``` - Gene symbols (regenerated genes only)
+- ```matched_genes.txt``` - Matched genes with coordinates
+- ```regenerated_genes.txt``` - Regenerated genes with coordinates
+- ```missing_genes.txt``` - Genes still not found
+- ```matching_summary.txt``` - Detailed summary statistics
+- ```matching.log``` - Complete processing log
+
+**Region File Format:**
+```
+# chr:start-end format (PLINK2 compatible)
+1:12345-67890    GENE1    ENSG00000123456
+1:98765-111111   GENE2    ENSG00000789012
+```
+
+**Workflow Recommendations:**
+1. **First run**: Use default settings to see match rate
+2. **If many missing genes**: Re-run with ```force_regen=yes merge_regen=yes``` to maximize recovery
+3. **For quality control**: Use ```merge_regen=no``` to separately review regenerated genes before merging
 
 ---
 
