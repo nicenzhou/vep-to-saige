@@ -368,6 +368,9 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
                         chr = parts[1]
                         pos = parts[2]
                         
+                        # Remove "chr" prefix if present
+                        gsub(/^chr/, "", chr)
+                        
                         # Store position and chromosome
                         positions[n_vars] = pos
                         chrs[n_vars] = chr
@@ -393,10 +396,10 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
                     
                     if (start < 1) start = 1
                     
-                    # Output regenerated gene info
+                    # Output regenerated gene info (chr WITHOUT prefix)
                     print gene "\tREGENERATED\t" chr "\t" start "\t" end "\tNA\tNA\t" n_vars >> output
                     
-                    # Output region for PLINK2
+                    # Output region for PLINK2 (chr WITHOUT prefix)
                     print chr ":" start "-" end "\t" gene "\tREGENERATED" >> regions
                     
                     regen_count++
@@ -409,7 +412,7 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
         print "  Regenerated " regen_count " genes from variant positions" > "/dev/stderr"
     }
     ' "$GROUP_FILE"
-    
+	    
     TOTAL_REGENERATED=$(wc -l < "$OUTPUT_DIR/regenerated_genes.txt")
     
     echo ""
@@ -421,56 +424,57 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
             # MERGE MODE: Add regenerated genes to main files
             #==========================================
             echo "  Merging regenerated genes into main output files..."
-            
+    
             # Merge regenerated regions into chromosome-specific files
             while IFS=$'\t' read -r region gene source; do
                 # Extract chromosome from region (format: chr:start-end)
                 # Remove 'chr' prefix and get just the number/letter
                 CHR=$(echo "$region" | sed 's/^chr//; s/:.*//')
-                
+        
                 # Append to chromosome region file (create if doesn't exist)
                 echo -e "${region}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${CHR}_regions_temp.txt"
-                
-                # Also append to gene list (create if doesn't exist)
-                echo "$gene" >> "$OUTPUT_DIR/chr${CHR}_gene_list_temp.txt"
-                
+        
             done < "$OUTPUT_DIR/regenerated_regions_temp.txt"
-            
+    
             # Merge with existing files and sort by coordinates
             for chr in {1..22} X Y; do
                 MAIN_REGION="$OUTPUT_DIR/chr${chr}_regions.txt"
                 TEMP_REGION="$OUTPUT_DIR/chr${chr}_regions_temp.txt"
                 MAIN_GENES="$OUTPUT_DIR/chr${chr}_gene_list.txt"
-                TEMP_GENES="$OUTPUT_DIR/chr${chr}_gene_list_temp.txt"
-                
+        
                 # Merge and sort region files by start coordinate
                 if [ -f "$MAIN_REGION" ] || [ -f "$TEMP_REGION" ]; then
                     {
                         [ -f "$MAIN_REGION" ] && cat "$MAIN_REGION"
                         [ -f "$TEMP_REGION" ] && cat "$TEMP_REGION"
-                    } | sort -t':' -k2 -n | sort -u > "$MAIN_REGION.sorted"
+                    } | awk -F'\t' '
+                    {
+                        # Extract start position from region (format: chr:start-end)
+                        region = $1
+                        split(region, parts, ":")
+                        split(parts[2], coords, "-")
+                        start = coords[1]
+                
+                        # Store line with start position for sorting
+                        print start "\t" $0
+                    }
+                    ' | sort -k1,1n | cut -f2- | awk '!seen[$0]++' > "$MAIN_REGION.sorted"
+            
                     mv "$MAIN_REGION.sorted" "$MAIN_REGION"
                     rm -f "$TEMP_REGION"
-                fi
-                
-                # Merge and sort gene lists
-                if [ -f "$MAIN_GENES" ] || [ -f "$TEMP_GENES" ]; then
-                    {
-                        [ -f "$MAIN_GENES" ] && cat "$MAIN_GENES"
-                        [ -f "$TEMP_GENES" ] && cat "$TEMP_GENES"
-                    } | sort -u > "$MAIN_GENES.sorted"
-                    mv "$MAIN_GENES.sorted" "$MAIN_GENES"
-                    rm -f "$TEMP_GENES"
+            
+                    # Regenerate gene list from sorted regions (preserves genomic order)
+                    cut -f2 "$MAIN_REGION" > "$MAIN_GENES"
                 fi
             done
-            
+    
             # Add regenerated genes to matched genes
             cat "$OUTPUT_DIR/regenerated_genes.txt" >> "$OUTPUT_DIR/matched_genes.txt"
-            
+    
             # Update totals
             TOTAL_MATCHED=$((TOTAL_MATCHED + TOTAL_REGENERATED))
             TOTAL_MISSING=$((TOTAL_MISSING - TOTAL_REGENERATED))
-            
+    
             echo "  ✓ Successfully merged $TOTAL_REGENERATED genes into main files"
             echo ""
             
@@ -479,37 +483,45 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
             # SEPARATE MODE: Keep regenerated genes in separate files
             #==========================================
             echo "  Saving regenerated genes to separate *_recovered.txt files..."
-            
+    
             # Create separate chromosome-specific files for regenerated genes
             while IFS=$'\t' read -r region gene source; do
                 # Extract chromosome from region (format: chr:start-end)
                 # Remove 'chr' prefix and get just the number/letter
                 CHR=$(echo "$region" | sed 's/^chr//; s/:.*//')
-                
+        
                 # Append to chromosome RECOVERED region file
                 echo -e "${region}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${CHR}_regions_recovered.txt"
-                
-                # Also append to RECOVERED gene list
-                echo "$gene" >> "$OUTPUT_DIR/chr${CHR}_gene_list_recovered.txt"
-                
+        
             done < "$OUTPUT_DIR/regenerated_regions_temp.txt"
-            
+    
             # Sort recovered chromosome files by coordinates
             for chr in {1..22} X Y; do
                 RECOVERED_REGION="$OUTPUT_DIR/chr${chr}_regions_recovered.txt"
                 RECOVERED_GENES="$OUTPUT_DIR/chr${chr}_gene_list_recovered.txt"
-                
+        
                 if [ -f "$RECOVERED_REGION" ]; then
-                    # Sort by start coordinate (second field after splitting by :)
-                    sort -t':' -k2 -n "$RECOVERED_REGION" | sort -u > "$RECOVERED_REGION.sorted"
-                    mv "$RECOVERED_REGION.sorted" "$RECOVERED_REGION"
-                fi
+                    # Sort by start coordinate
+                    awk -F'\t' '
+                    {
+                        # Extract start position from region (format: chr:start-end)
+                        region = $1
+                        split(region, parts, ":")
+                        split(parts[2], coords, "-")
+                        start = coords[1]
                 
-                if [ -f "$RECOVERED_GENES" ]; then
-                    sort -u "$RECOVERED_GENES" -o "$RECOVERED_GENES"
+                        # Store line with start position for sorting
+                        print start "\t" $0
+                    }
+                    ' "$RECOVERED_REGION" | sort -k1,1n | cut -f2- | awk '!seen[$0]++' > "$RECOVERED_REGION.sorted"
+            
+                    mv "$RECOVERED_REGION.sorted" "$RECOVERED_REGION"
+            
+                    # Regenerate gene list from sorted regions (preserves genomic order)
+                    cut -f2 "$RECOVERED_REGION" > "$RECOVERED_GENES"
                 fi
             done
-            
+    
             echo "  ✓ Successfully saved $TOTAL_REGENERATED genes to separate files"
             echo ""
         fi
