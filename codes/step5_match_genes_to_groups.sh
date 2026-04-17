@@ -93,20 +93,20 @@ if [ ! -f "$GROUP_FILE" ]; then
 fi
 
 # Validate buffer is numeric
-if ! [[ "$$BUFFER_KB" =~ ^[0-9]+$$ ]]; then
+if ! [[ "$BUFFER_KB" =~ ^[0-9]+$ ]]; then
     echo "ERROR: Buffer must be a positive integer (got: $BUFFER_KB)" >&2
     exit 1
 fi
 
 # Validate force_regen option
-FORCE_REGEN=$$(echo "$$FORCE_REGEN" | tr '[:upper:]' '[:lower:]')
-if [[ ! "$$FORCE_REGEN" =~ ^(yes|no)$$ ]]; then
+FORCE_REGEN=$(echo "$FORCE_REGEN" | tr '[:upper:]' '[:lower:]')
+if [[ ! "$FORCE_REGEN" =~ ^(yes|no)$ ]]; then
     echo "ERROR: force_regen must be 'yes' or 'no' (got: $FORCE_REGEN)" >&2
     exit 1
 fi
 
 # Check for coordinate files
-COORD_COUNT=$$(find "$$GENE_COORDS_DIR" -name "chr*_genes.txt" -type f | wc -l)
+COORD_COUNT=$(find "$GENE_COORDS_DIR" -name "chr*_genes.txt" -type f | wc -l)
 if [ "$COORD_COUNT" -eq 0 ]; then
     echo "ERROR: No chr*_genes.txt files found in $GENE_COORDS_DIR" >&2
     exit 1
