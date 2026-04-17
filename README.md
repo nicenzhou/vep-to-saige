@@ -214,7 +214,7 @@ Match gene coordinates with SAIGE group files and create PLINK2a region files.
 
 **Usage:**
 ```bash
-./step5_match_genes_to_groups.sh <gene_coords_dir> <group_file> <output_dir> [buffer_kb] [force_regen]
+./step5_match_genes_to_groups.sh <gene_coords_dir> <group_file> <output_dir> [buffer_kb] [force_regen] [merge_regen]
 ```
 
 **Arguments:**
