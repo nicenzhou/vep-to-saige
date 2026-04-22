@@ -312,47 +312,98 @@ For regenerated genes:
 
 ---
 
-### Step 6: Extract Genotypes with PLINK2
+### Step 6: Extract Genotypes with PLINK2a
 
-Extract genotypes for gene regions. Creates ONE BFILE/PFILE PER CHROMOSOME (efficient for SAIGE).
+Extract genotypes for gene regions using PLINK2a with optional chunking support.
+Creates output files per chromosome (and per chunk if chunking enabled).
 
 **Usage:**
-```bash
-./step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [format] [threads]
+```
+./step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix] [chunk_size]
 ```
 
 **Arguments:**
-- ```input_dir``` - Directory with genotype files
-- ```regions_dir``` - Directory with region files (from Step 5)
-- ```output_dir``` - Output directory
-- ```format``` - Input format: auto, vcf, pgen, bgen, bed (default: auto)
-- ```threads``` - Number of threads (default: 4)
+- ```input_dir``` - Directory with chromosome genotype files
+- ```regions_dir``` - Directory with chr*_regions.txt files (from step5_match_genes_to_groups.sh)
+- ```output_dir``` - Output directory for extracted files (default: gene_bfiles)
+- ```threads``` - Number of threads for PLINK2a (default: 4)
+- ```output_format``` - Output format: bfile, pgen, vcf, bgen (default: bfile)
+- ```input_format``` - Input format: auto, bfile, pgen, vcf, bgen (default: auto)
+- ```input_prefix``` - Input file prefix pattern (default: chr)
+- ```chunk_size``` - Number of genes per chunk (default: 0 = no chunking)
 
-**Supported Input Formats:**
-- **VCF**: ```chr1.vcf.gz```, ```chr2.vcf.gz```, ...
-- **PGEN**: ```chr1.pgen/pvar/psam```, ```chr2.pgen/pvar/psam```, ...
-- **BGEN**: ```chr1.bgen```, ```chr2.bgen```, ... (requires .sample file)
-- **BED**: ```chr1.bed/bim/fam```, ```chr2.bed/bim/fam```, ...
+**Chunking Feature:**
+
+Chunk size controls how genes are grouped into output files:
+
+- ```chunk_size = 0``` : Extract all genes in one file per chromosome (default)
+  - Output: ```chr1_genes.bed```, ```chr2_genes.bed```, etc.
+  - Best for: Standard workflows, smaller datasets
+
+- ```chunk_size = 20``` : Extract 20 genes per chunk, multiple files per chromosome
+  - Output: ```chr1_genes_chunk1.bed```, ```chr1_genes_chunk2.bed```, etc.
+  - Best for: Memory constraints, parallel processing
+
+- ```chunk_size = 50``` : Extract 50 genes per chunk
+  - Output: ```chr1_genes_chunk1.bed```, ```chr1_genes_chunk2.bed```, etc.
+  - Best for: Balanced processing, moderate datasets
+
+**Input File Prefix Examples:**
+- ```chr``` → chr1.bed, chr2.bed, ... (default)
+- ```wgs_chr``` → wgs_chr1.bed, wgs_chr2.bed, ...
+- ```imputed_chr``` → imputed_chr1.bed, imputed_chr2.bed, ...
+- ```""``` → 1.bed, 2.bed, ... (empty string for no prefix)
+
+**Supported Input Formats (auto-detected):**
+- **BFILE**: ```.bed/.bim/.fam``` (PLINK1 binary)
+- **PGEN**: ```.pgen/.pvar/.psam``` (PLINK2 binary)
+- **VCF**: ```.vcf.gz``` or ```.vcf``` (VCF format)
+- **BGEN**: ```.bgen``` with ```.sample``` file (BGEN format)
+
+**Supported Output Formats:**
+- **bfile**: PLINK1 binary (```.bed/.bim/.fam```)
+- **pgen**: PLINK2 binary (```.pgen/.pvar/.psam```)
+- **vcf**: VCF format (```.vcf.gz``` with ```.tbi``` index)
+- **bgen**: BGEN v1.2 (```.bgen``` with ```.sample```)
 
 **Examples:**
-```bash
-# Auto-detect format
-./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_pfiles
 
-# Specify VCF input, 16 threads
-./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_pfiles vcf 16
+```
+# Default: no chunking, all genes in one file per chromosome
+./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles
 
-# BGEN input
-./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_pfiles bgen 8
+# Extract 20 genes per chunk for memory efficiency
+./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto chr 20
 
-# Convert to BGEN for SAIGE
-CONVERT_TO_BGEN=yes ./step6_extract_genotypes_plink2.sh /data/pgen plink_regions gene_bgen pgen 8
+# Extract 50 genes per chunk with custom prefix
+./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto wgs_chr 50
+
+# BGEN output with 30 genes per chunk (for SAIGE)
+./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_bfiles 16 bgen bgen imputed_chr 30
+
+# VCF input, BFILE output, no chunking
+./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_bfiles 8 bfile vcf chr 0
+
+# Auto-detect input, PGEN output, 100 genes per chunk
+./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 8 pgen auto chr 100
+
+# No prefix (files named 1.bed, 2.bed, etc.), 25 genes per chunk
+./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto "" 25
 ```
 
-**Output:**
-- ```chr*_genes.bed/bim/fam`` - Extracted genotypes per chromosome (BFILE format)
+**Output Files (no chunking, chunk_size=0):**
+- ```chr1_genes.bed/bim/fam``` - All genes on chr1
+- ```chr2_genes.bed/bim/fam``` - All genes on chr2
 - ```extraction_summary.txt``` - Summary of extraction
-- Optional: BGEN format for direct SAIGE use
+- ```extraction.log``` - Detailed processing log
+
+**Output Files (with chunking, e.g., chunk_size=20):**
+- ```chr1_genes_chunk1.bed/bim/fam``` - Genes 1-20 on chr1
+- ```chr1_genes_chunk2.bed/bim/fam``` - Genes 21-40 on chr1
+- ```chr1_genes_chunk3.bed/bim/fam``` - Genes 41-60 on chr1
+- ```chr2_genes_chunk1.bed/bim/fam``` - Genes 1-20 on chr2
+- ```extraction_summary.txt``` - Summary with chunk information
+- ```extraction.log``` - Detailed processing log
 
 ---
 
