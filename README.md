@@ -131,6 +131,7 @@ is_Firth_beta=TRUE
 EOF
 
 ./step8_run_saige_gene_tests.sh wgs_config.txt
+./saige_results/step9_analyze_results.sh
 
 #--------------------------------------------------------------------------
 # Workflow 3: Quick test on chromosome 22
@@ -170,6 +171,7 @@ r.corr=0
 EOF
 
 ./step8_run_saige_gene_tests.sh test_config.txt
+./saige_results/step9_analyze_results.sh
 
 #--------------------------------------------------------------------------
 # Workflow 4: Using interactive configuration builder
@@ -919,35 +921,6 @@ Without chunk merging (MERGE_CHUNKS=no):
 - ```saige_run_summary.txt``` - Job summary
 - ```saige_run.log``` - Detailed log
 
-**Post-Analysis:**
-
-```
-# Analyze results (auto-generated script)
-./saige_results/step9_analyze_results.sh
-
-# Manual result combination
-head -1 saige_results/chr1_combined_results.txt > all_results.txt
-tail -n +2 -q saige_results/chr*_combined_results.txt >> all_results.txt
-
-# Extract significant results (p < 5e-8)
-head -1 all_results.txt > genome_wide_sig.txt
-awk 'NR>1 && $NF < 5e-8' all_results.txt >> genome_wide_sig.txt
-
-# Extract suggestive results (p < 1e-5)
-head -1 all_results.txt > suggestive_sig.txt
-awk 'NR>1 && $NF < 1e-5' all_results.txt >> suggestive_sig.txt
-
-# Count genes tested per chromosome
-for chr in {1..22}; do
-  count=$$(tail -n +2 saige_results/chr$${chr}_combined_results.txt | wc -l)
-  echo "Chr$${chr}: $${count} genes"
-done
-
-# Top 20 genes
-head -1 all_results.txt > top20.txt
-tail -n +2 all_results.txt | sort -gk$(head -1 all_results.txt | tr '\t' '\n' | grep -n '^p' | cut -d: -f1) | head -20 >> top20.txt
-```
-
 ---
 
 ### Interactive Configuration Builder
@@ -1255,6 +1228,109 @@ Parameter Values:
 
 ---
 
+### Step 9: Post-Analysis
+
+Interactive analysis tool for SAIGE-GENE test results with flexible operation modes.
+
+**Usage:**
+
+```bash
+./step9_analyze_results.sh [operations]
+```
+
+**Arguments:**
+- ```operations``` - Plus-separated list of analysis operations (optional, prompts if not provided)
+
+**Available Operations:**
+
+*Data Combination:*
+- ```mergechrom``` - Merge chunked results by chromosome
+- ```mergeall``` - Combine all chromosomes into single file
+
+*Significance Filtering:*
+- ```findsig``` - Extract significant results at multiple thresholds
+- ```findgws``` - Extract genome-wide significant only (p < 5e-8)
+- ```findsug``` - Extract suggestive results (p < 1e-5)
+- ```findnom``` - Extract nominal results (p < 0.05)
+
+*Gene Ranking:*
+- ```top10``` - Extract top 10 genes
+- ```top50``` - Extract top 50 genes
+- ```top100``` - Extract top 100 genes
+
+*Summary Statistics:*
+- ```chromsum``` - Per-chromosome summary table
+- ```fullsum``` - Complete summary report
+
+*Visualization Data:*
+- ```qqdata``` - Generate QQ plot data
+- ```mandata``` - Generate Manhattan plot data
+- ```plotdata``` - Generate both QQ and Manhattan data
+
+*Presets:*
+- ```standard``` - Standard analysis (mergeall+findsig+top50+fullsum)
+- ```full``` - Complete analysis (all operations)
+- ```quick``` - Quick overview (mergeall+top50+fullsum)
+
+**Examples:**
+```bash
+# Interactive mode (shows menu)
+./step9_analyze_results.sh
+
+# Standard analysis
+./step9_analyze_results.sh standard
+
+# Custom combination
+./step9_analyze_results.sh mergeall+findsig+top50+qqdata
+
+# Quick check of top genes
+./step9_analyze_results.sh quick
+
+# Full comprehensive analysis
+./step9_analyze_results.sh full
+
+# Find significant genes only
+./step9_analyze_results.sh findgws+top10
+```
+
+**Output:**
+- ```all_results.txt``` - Combined results from all chromosomes
+- ```genome_wide_sig.txt``` - Genome-wide significant genes (p < 5e-8)
+- ```suggestive_sig.txt``` - Suggestive associations (p < 1e-5)
+- ```nominal_sig.txt``` - Nominal significant genes (p < 0.05)
+- ```top50_genes.txt``` - Top 50 genes ranked by p-value
+- ```chromosome_summary.txt``` - Per-chromosome statistics table
+- ```qq_plot_data.txt``` - Data for QQ plots (Expected vs Observed -log10P)
+- ```manhattan_plot_data.txt``` - Data for Manhattan plots (Gene, CHR, P-value)
+- ```analysis_summary.txt``` - Complete analysis summary report
+
+**Other options**
+```
+# Manual result combination
+head -1 saige_results/chr1_combined_results.txt > all_results.txt
+tail -n +2 -q saige_results/chr*_combined_results.txt >> all_results.txt
+
+# Extract significant results (p < 5e-8)
+head -1 all_results.txt > genome_wide_sig.txt
+awk 'NR>1 && $NF < 5e-8' all_results.txt >> genome_wide_sig.txt
+
+# Extract suggestive results (p < 1e-5)
+head -1 all_results.txt > suggestive_sig.txt
+awk 'NR>1 && $NF < 1e-5' all_results.txt >> suggestive_sig.txt
+
+# Count genes tested per chromosome
+for chr in {1..22}; do
+  count=$$(tail -n +2 saige_results/chr$${chr}_combined_results.txt | wc -l)
+  echo "Chr$${chr}: $${count} genes"
+done
+
+# Top 20 genes
+head -1 all_results.txt > top20.txt
+tail -n +2 all_results.txt | sort -gk$(head -1 all_results.txt | tr '\t' '\n' | grep -n '^p' | cut -d: -f1) | head -20 >> top20.txt
+```
+
+---
+
 ## Important notes
 
 ```
@@ -1339,35 +1415,6 @@ for chr in {1..22}; do
 done
 ```
 
----
-
-## SAIGE Integration
-
-```bash
-# Run SAIGE-GENE+ burden test
-Rscript step2_SPAtests.R        \
-     --bgenFile=./input/genotype_100markers.bgen    \
-     --bgenFileIndex=./input/genotype_100markers.bgen.bgi \
-     --SAIGEOutputFile=./output/genotype_100markers_bgen_groupTest_out.txt \
-     --chrom=1 \
-     --LOCO=TRUE    \
-     --AlleleOrder=ref-first \
-     --minMAF=0 \
-     --minMAC=0.5 \
-     --sampleFile=./input/samplelist.txt \
-     --GMMATmodelFile=./output/example_binary_fullGRM.rda \
-     --varianceRatioFile=./output/example_binary_fullGRM.varianceRatio.txt	\
-     --sparseGRMFile=output/sparseGRM_relatednessCutoff_0.125_1000_randomMarkersUsed.sparseGRM.mtx   \
-     --sparseGRMSampleIDFile=output/sparseGRM_relatednessCutoff_0.125_1000_randomMarkersUsed.sparseGRM.mtx.sampleIDs.txt  \
-     --groupFile=./input/all_genes_groups.txt	\
-     --annotation_in_groupTest="lof,missense:lof,missense:lof:synonymous"        \
-     --maxMAF_in_groupTest=0.0001,0.001,0.01	\
-     --is_output_markerList_in_groupTest=TRUE \
-     --is_fastTest=TRUE
-```
-
-*Full details see: https://saigegit.github.io/SAIGE-doc/docs/set_step2.html*
- 
 ---
 
 ## Troubleshooting
