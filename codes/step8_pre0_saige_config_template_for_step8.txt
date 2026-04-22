@@ -1,4 +1,4 @@
-# saige_config_template.txt
+# step8_pre0_saige_config_template_for_step8.txt
 # Complete SAIGE-GENE Step 2 Configuration File
 # Copy this file and modify for your analysis
 
