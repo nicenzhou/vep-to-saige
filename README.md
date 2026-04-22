@@ -221,13 +221,13 @@ EOF
 # ├── gene_bfiles/               # Step 6 output
 # │   ├── chr*_genes.bed/bim/fam # Or .bgen, .pgen, .vcf.gz
 # │   ├── chr*_genes_chunk*.bed  # If chunked
-# │   └── extraction_summary.txt
+# │   ├── extraction_summary.txt
+# │   └── extraction.log
 # ├── saige_results/             # Step 8 output
 # │   ├── chr*_combined_results.txt  # If MERGE_CHUNKS=yes
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
-# │   ├── saige_run.log
-# │   └── analyze_results.sh
+# │   └── saige_run.log
 # └── *.sh                       # Pipeline scripts
 ```
 
@@ -1440,4 +1440,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 0.0.1 | Last updated: 2026-04-16*
+*Version 0.0.1 | Last updated: 2026-04-22*
