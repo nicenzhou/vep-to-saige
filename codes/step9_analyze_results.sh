@@ -69,10 +69,10 @@ show_menu() {
     echo "  quick          - Quick analysis (mergeall+top50+fullsum)"
     echo ""
     echo "Usage Examples:"
-    echo "  ./analyze_results.sh                           # Interactive mode"
-    echo "  ./analyze_results.sh standard                  # Run standard analysis"
-    echo "  ./analyze_results.sh mergeall+findsig+top50    # Custom combination"
-    echo "  ./analyze_results.sh full                      # Complete analysis"
+    echo "  ./step9_analyze_results.sh                           # Interactive mode"
+    echo "  ./step9_analyze_results.sh standard                  # Run standard analysis"
+    echo "  ./step9_analyze_results.sh mergeall+findsig+top50    # Custom combination"
+    echo "  ./step9_analyze_results.sh full                      # Complete analysis"
     echo ""
 }
 
