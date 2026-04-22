@@ -2,7 +2,7 @@
 
 # Script: step6_extract_genotypes_plink2.sh
 # Description: Extract genotypes for gene regions using PLINK2a (one file per chromosome)
-# Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format]
+# Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix]
 
 set -euo pipefail
 
@@ -10,25 +10,34 @@ INPUT_DIR="${1:-}"
 REGIONS_DIR="${2:-}"
 OUTPUT_DIR="${3:-gene_bfiles}"
 THREADS="${4:-4}"
-OUTPUT_FORMAT="${5:-bfile}"  # Options: bfile, pgen, vcf, bgen
-INPUT_FORMAT="${6:-auto}"    # Options: auto, bfile, pgen, vcf, bgen
+OUTPUT_FORMAT="${5:-bfile}"     # Options: bfile, pgen, vcf, bgen
+INPUT_FORMAT="${6:-auto}"       # Options: auto, bfile, pgen, vcf, bgen
+INPUT_PREFIX="${7:-chr}"        # Input file prefix pattern (default: chr)
 
-if [ -z "$$INPUT_DIR" ] || [ -z "$$REGIONS_DIR" ]; then
+if [ -z "$INPUT_DIR" ] || [ -z "$REGIONS_DIR" ]; then
     cat << 'EOF'
-Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format]
+Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix]
 
 Description:
   Extract genotypes for genes using PLINK2a.
   Creates ONE FILE PER CHROMOSOME containing all genes on that chromosome.
-  Supports multiple input and output formats.
+  Supports multiple input and output formats with customizable file naming.
 
 Arguments:
   input_dir      Directory with chromosome genotype files
   regions_dir    Directory with chr*_regions.txt files (from step5_match_genes_to_groups.sh)
-  output_dir     Output directory for extracted files
+  output_dir     Output directory for extracted files (default: gene_bfiles)
   threads        Number of threads for PLINK2a (default: 4)
   output_format  Output format: bfile, pgen, vcf, bgen (default: bfile)
   input_format   Input format: auto, bfile, pgen, vcf, bgen (default: auto)
+  input_prefix   Input file prefix pattern (default: chr)
+
+Input File Prefix Examples:
+  chr          -> chr1.bed, chr2.bed, ... (default)
+  wgs_chr      -> wgs_chr1.bed, wgs_chr2.bed, ...
+  chromosome   -> chromosome1.bed, chromosome2.bed, ...
+  imputed_chr  -> imputed_chr1.bed, imputed_chr2.bed, ...
+  ""           -> 1.bed, 2.bed, ... (empty string for no prefix)
 
 Input Formats (auto-detected if input_format=auto):
   bfile  - PLINK1 binary (.bed/.bim/.fam)
@@ -42,7 +51,7 @@ Output Formats:
   vcf    - VCF format (.vcf.gz with .tbi index)
   bgen   - BGEN v1.2 format (.bgen with .sample)
 
-Input File Naming Conventions:
+Input File Naming Patterns (with default prefix "chr"):
   BFILE: chr1.bed/bim/fam, chr2.bed/bim/fam, ...
   PGEN:  chr1.pgen/pvar/psam, chr2.pgen/pvar/psam, ...
   VCF:   chr1.vcf.gz, chr2.vcf.gz, ... (or .vcf)
@@ -56,20 +65,23 @@ Output Files (example for bfile format):
   - extraction.log           Detailed log
 
 Examples:
-  # Auto-detect input format, output as BFILE
+  # Default: chr1.bed, chr2.bed, etc.
   ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles
 
-  # BGEN input, BGEN output for SAIGE
-  ./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_bfiles 16 bgen bgen
+  # Custom prefix: wgs_chr1.bed, wgs_chr2.bed, etc.
+  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto wgs_chr
 
-  # VCF input, BFILE output
-  ./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_bfiles 8 bfile vcf
+  # No prefix: 1.bed, 2.bed, etc.
+  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 8 bfile auto ""
 
-  # PGEN input, VCF output
-  ./step6_extract_genotypes_plink2.sh /data/pgen plink_regions gene_bfiles 4 vcf pgen
+  # BGEN input with custom prefix
+  ./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_bfiles 16 bgen bgen imputed_chr
 
-  # Auto-detect BFILE input, output as PGEN
-  ./step6_extract_genotypes_plink2.sh /data/bfiles plink_regions gene_bfiles 8 pgen auto
+  # VCF input with suffix: chromosome1.vcf.gz, chromosome2.vcf.gz
+  ./step6_extract_genotypes_plink2.sh /data/vcf plink_regions gene_bfiles 8 bfile vcf chromosome
+
+  # Auto-detect with custom prefix
+  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 8 pgen auto wgs_
 
 Use in SAIGE-GENE (BGEN format):
   Rscript step2_SPAtests.R \
@@ -87,25 +99,25 @@ fi
 # Validate Inputs
 #==========================================
 
-[ ! -d "$$INPUT_DIR" ] && { echo "ERROR: Input directory not found: $$INPUT_DIR" >&2; exit 1; }
-[ ! -d "$$REGIONS_DIR" ] && { echo "ERROR: Regions directory not found: $$REGIONS_DIR" >&2; exit 1; }
+[ ! -d "$INPUT_DIR" ] && { echo "ERROR: Input directory not found: $INPUT_DIR" >&2; exit 1; }
+[ ! -d "$REGIONS_DIR" ] && { echo "ERROR: Regions directory not found: $REGIONS_DIR" >&2; exit 1; }
 
 # Validate output format
-OUTPUT_FORMAT=$$(echo "$$OUTPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
-if [[ ! "$$OUTPUT_FORMAT" =~ ^(bfile|pgen|vcf|bgen)$$ ]]; then
+OUTPUT_FORMAT=$(echo "$OUTPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
+if [[ ! "$OUTPUT_FORMAT" =~ ^(bfile|pgen|vcf|bgen)$ ]]; then
     echo "ERROR: Invalid output_format. Must be: bfile, pgen, vcf, or bgen" >&2
     exit 1
 fi
 
 # Validate input format
-INPUT_FORMAT=$$(echo "$$INPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
-if [[ ! "$$INPUT_FORMAT" =~ ^(auto|bfile|pgen|vcf|bgen)$$ ]]; then
+INPUT_FORMAT=$(echo "$INPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
+if [[ ! "$INPUT_FORMAT" =~ ^(auto|bfile|pgen|vcf|bgen)$ ]]; then
     echo "ERROR: Invalid input_format. Must be: auto, bfile, pgen, vcf, or bgen" >&2
     exit 1
 fi
 
 # Validate threads
-if ! [[ "$$THREADS" =~ ^[0-9]+$$ ]]; then
+if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
     echo "ERROR: Threads must be a positive integer (got: $THREADS)" >&2
     exit 1
 fi
@@ -155,37 +167,38 @@ mkdir -p "$OUTPUT_DIR"
 #==========================================
 
 detect_input_format() {
-    local input_dir="\$1"
-    local chr="\$2"
+    local input_dir="$1"
+    local chr="$2"
+    local prefix="$3"
     
-    # Try different naming patterns and formats
-    for prefix in "chr$${chr}" "chr$${chr}_merged" "${chr}"; do
+    # Try different naming patterns with the specified prefix
+    for pattern in "${prefix}${chr}" "${prefix}${chr}_merged"; do
         # Check for BFILE
-        if [ -f "$$input_dir/$${prefix}.bed" ] && [ -f "$$input_dir/$${prefix}.bim" ] && [ -f "$$input_dir/$${prefix}.fam" ]; then
-            echo "bfile:$$input_dir/$${prefix}"
+        if [ -f "$input_dir/${pattern}.bed" ] && [ -f "$input_dir/${pattern}.bim" ] && [ -f "$input_dir/${pattern}.fam" ]; then
+            echo "bfile:$input_dir/${pattern}"
             return 0
         fi
         
         # Check for PGEN
-        if [ -f "$$input_dir/$${prefix}.pgen" ] && [ -f "$$input_dir/$${prefix}.pvar" ] && [ -f "$$input_dir/$${prefix}.psam" ]; then
-            echo "pgen:$$input_dir/$${prefix}"
+        if [ -f "$input_dir/${pattern}.pgen" ] && [ -f "$input_dir/${pattern}.pvar" ] && [ -f "$input_dir/${pattern}.psam" ]; then
+            echo "pgen:$input_dir/${pattern}"
             return 0
         fi
         
         # Check for BGEN
-        if [ -f "$$input_dir/$${prefix}.bgen" ]; then
-            echo "bgen:$$input_dir/$${prefix}.bgen"
+        if [ -f "$input_dir/${pattern}.bgen" ]; then
+            echo "bgen:$input_dir/${pattern}.bgen"
             return 0
         fi
         
         # Check for VCF
-        if [ -f "$$input_dir/$${prefix}.vcf.gz" ]; then
-            echo "vcf:$$input_dir/$${prefix}.vcf.gz"
+        if [ -f "$input_dir/${pattern}.vcf.gz" ]; then
+            echo "vcf:$input_dir/${pattern}.vcf.gz"
             return 0
         fi
         
-        if [ -f "$$input_dir/$${prefix}.vcf" ]; then
-            echo "vcf:$$input_dir/$${prefix}.vcf"
+        if [ -f "$input_dir/${pattern}.vcf" ]; then
+            echo "vcf:$input_dir/${pattern}.vcf"
             return 0
         fi
     done
@@ -199,37 +212,38 @@ detect_input_format() {
 #==========================================
 
 find_input_file() {
-    local input_dir="\$1"
-    local chr="\$2"
-    local format="\$3"
+    local input_dir="$1"
+    local chr="$2"
+    local format="$3"
+    local prefix="$4"
     
-    # Try different naming patterns
-    for prefix in "chr$${chr}" "chr$${chr}_merged" "${chr}"; do
+    # Try different naming patterns with the specified prefix
+    for pattern in "${prefix}${chr}" "${prefix}${chr}_merged"; do
         case "$format" in
             bfile)
-                if [ -f "$$input_dir/$${prefix}.bed" ]; then
-                    echo "$$input_dir/$${prefix}"
+                if [ -f "$input_dir/${pattern}.bed" ]; then
+                    echo "$input_dir/${pattern}"
                     return 0
                 fi
                 ;;
             pgen)
-                if [ -f "$$input_dir/$${prefix}.pgen" ]; then
-                    echo "$$input_dir/$${prefix}"
+                if [ -f "$input_dir/${pattern}.pgen" ]; then
+                    echo "$input_dir/${pattern}"
                     return 0
                 fi
                 ;;
             vcf)
-                if [ -f "$$input_dir/$${prefix}.vcf.gz" ]; then
-                    echo "$$input_dir/$${prefix}.vcf.gz"
+                if [ -f "$input_dir/${pattern}.vcf.gz" ]; then
+                    echo "$input_dir/${pattern}.vcf.gz"
                     return 0
-                elif [ -f "$$input_dir/$${prefix}.vcf" ]; then
-                    echo "$$input_dir/$${prefix}.vcf"
+                elif [ -f "$input_dir/${pattern}.vcf" ]; then
+                    echo "$input_dir/${pattern}.vcf"
                     return 0
                 fi
                 ;;
             bgen)
-                if [ -f "$$input_dir/$${prefix}.bgen" ]; then
-                    echo "$$input_dir/$${prefix}.bgen"
+                if [ -f "$input_dir/${pattern}.bgen" ]; then
+                    echo "$input_dir/${pattern}.bgen"
                     return 0
                 fi
                 ;;
@@ -283,10 +297,11 @@ echo "Started: $(date)"
 echo ""
 echo "Configuration:"
 echo "  Input directory: $INPUT_DIR"
+echo "  Input prefix: '${INPUT_PREFIX}' (looking for ${INPUT_PREFIX}1, ${INPUT_PREFIX}2, ...)"
 echo "  Regions directory: $REGIONS_DIR"
 echo "  Output directory: $OUTPUT_DIR"
 echo "  Input format: $INPUT_FORMAT"
-echo "  Output format: $$OUTPUT_FORMAT ($$OUTPUT_DESC)"
+echo "  Output format: $OUTPUT_FORMAT ($OUTPUT_DESC)"
 echo "  Threads: $THREADS"
 echo "  PLINK2a version: $PLINK_VERSION"
 echo ""
@@ -295,11 +310,12 @@ echo ""
 {
     echo "Chromosome Extraction Summary"
     echo "Generated: $(date)"
+    echo "Input prefix: ${INPUT_PREFIX}"
     echo "Input format: $INPUT_FORMAT"
     echo "Output format: $OUTPUT_FORMAT"
     echo ""
-    printf "%-5s %-10s %-8s %-15s %-15s %-10s %-12s\n" "Chr" "Input_Type" "Genes" "Vars_Input" "Vars_Output" "Samples" "Status"
-    echo "--------------------------------------------------------------------------------------------"
+    printf "%-5s %-25s %-10s %-8s %-15s %-15s %-10s %-12s\n" "Chr" "Input_File" "Format" "Genes" "Vars_Input" "Vars_Output" "Samples" "Status"
+    echo "------------------------------------------------------------------------------------------------------------------------"
 } > "$SUMMARY"
 
 TOTAL_EXTRACTED=0
@@ -315,7 +331,7 @@ echo "Processing chromosomes..."
 echo ""
 
 for chr in {1..22} X Y; do
-    REGION_FILE="$$REGIONS_DIR/chr$${chr}_regions.txt"
+    REGION_FILE="$REGIONS_DIR/chr${chr}_regions.txt"
     
     # Skip if no region file
     if [ ! -f "$REGION_FILE" ]; then
@@ -323,18 +339,19 @@ for chr in {1..22} X Y; do
         continue
     fi
     
-    GENE_COUNT=$$(wc -l < "$$REGION_FILE")
+    GENE_COUNT=$(wc -l < "$REGION_FILE")
     TOTAL_GENES=$((TOTAL_GENES + GENE_COUNT))
     
     echo "  Processing chr${chr}..."
     echo "    Genes: $GENE_COUNT"
+    echo "    Looking for: ${INPUT_PREFIX}${chr}.*"
     
     # Determine input file and format
     if [ "$INPUT_FORMAT" = "auto" ]; then
-        DETECTED=$$(detect_input_format "$$INPUT_DIR" "$chr")
+        DETECTED=$(detect_input_format "$INPUT_DIR" "$chr" "$INPUT_PREFIX")
         if [ "$DETECTED" = "notfound" ]; then
-            echo "    ✗ Input file not found (tried all formats)"
-            printf "%-5s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$$chr" "UNKNOWN" "$$GENE_COUNT" "NA" "NA" "NA" "NOT_FOUND" >> "$SUMMARY"
+            echo "    ✗ Input file not found (tried all formats with prefix '${INPUT_PREFIX}')"
+            printf "%-5s %-25s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "${INPUT_PREFIX}${chr}" "UNKNOWN" "$GENE_COUNT" "NA" "NA" "NA" "NOT_FOUND" >> "$SUMMARY"
             TOTAL_FAILED=$((TOTAL_FAILED + 1))
             continue
         fi
@@ -342,27 +359,28 @@ for chr in {1..22} X Y; do
         INPUT_FILE="${DETECTED#*:}"
         echo "    Detected format: $DETECTED_FORMAT"
     else
-        INPUT_FILE=$$(find_input_file "$$INPUT_DIR" "$$chr" "$$INPUT_FORMAT")
+        INPUT_FILE=$(find_input_file "$INPUT_DIR" "$chr" "$INPUT_FORMAT" "$INPUT_PREFIX")
         if [ -z "$INPUT_FILE" ]; then
-            echo "    ✗ Input file not found for format: $INPUT_FORMAT"
-            printf "%-5s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$$chr" "$$INPUT_FORMAT" "$$GENE_COUNT" "NA" "NA" "NA" "NOT_FOUND" >> "$$SUMMARY"
+            echo "    ✗ Input file not found for format: $INPUT_FORMAT with prefix '${INPUT_PREFIX}'"
+            printf "%-5s %-25s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "${INPUT_PREFIX}${chr}" "$INPUT_FORMAT" "$GENE_COUNT" "NA" "NA" "NA" "NOT_FOUND" >> "$SUMMARY"
             TOTAL_FAILED=$((TOTAL_FAILED + 1))
             continue
         fi
         DETECTED_FORMAT="$INPUT_FORMAT"
     fi
     
-    echo "    Input: $INPUT_FILE"
+    INPUT_BASENAME=$(basename "$INPUT_FILE")
+    echo "    Input: $INPUT_BASENAME"
     
     # Output prefix
-    OUTPUT_PREFIX="$$OUTPUT_DIR/chr$${chr}_genes"
+    OUTPUT_PREFIX="$OUTPUT_DIR/chr${chr}_genes"
     
     # Get input variant count
     VARS_INPUT="NA"
     case "$DETECTED_FORMAT" in
         bfile)
             if [ -f "${INPUT_FILE}.bim" ]; then
-                VARS_INPUT=$$(wc -l < "$${INPUT_FILE}.bim")
+                VARS_INPUT=$(wc -l < "${INPUT_FILE}.bim")
             fi
             ;;
         pgen)
@@ -406,20 +424,25 @@ for chr in {1..22} X Y; do
             ;;
         bgen)
             PLINK_CMD="$PLINK_CMD --bgen ${INPUT_FILE}"
-            # Look for sample file
+            # Look for sample file with the same prefix pattern
             SAMPLE_FILE=""
             BGEN_DIR=$(dirname "$INPUT_FILE")
             BGEN_BASE=$(basename "$INPUT_FILE" .bgen)
+            
+            # Try various sample file locations
             if [ -f "${INPUT_FILE}.sample" ]; then
                 SAMPLE_FILE="${INPUT_FILE}.sample"
             elif [ -f "${BGEN_DIR}/${BGEN_BASE}.sample" ]; then
                 SAMPLE_FILE="${BGEN_DIR}/${BGEN_BASE}.sample"
+            elif [ -f "${BGEN_DIR}/${INPUT_PREFIX}${chr}.sample" ]; then
+                SAMPLE_FILE="${BGEN_DIR}/${INPUT_PREFIX}${chr}.sample"
             elif [ -f "${BGEN_DIR}/chr${chr}.sample" ]; then
                 SAMPLE_FILE="${BGEN_DIR}/chr${chr}.sample"
             fi
             
             if [ -n "$SAMPLE_FILE" ]; then
                 PLINK_CMD="$PLINK_CMD --sample ${SAMPLE_FILE}"
+                echo "    Using sample file: $(basename $SAMPLE_FILE)"
             else
                 echo "    ⚠ Warning: No .sample file found for BGEN"
             fi
@@ -495,12 +518,12 @@ for chr in {1..22} X Y; do
         fi
         
         echo "    ✓ Extracted: $VARS_OUTPUT variants, $SAMPLES samples"
-        printf "%-5s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "$DETECTED_FORMAT" "$GENE_COUNT" "$VARS_INPUT" "$VARS_OUTPUT" "$SAMPLES" "SUCCESS" >> "$SUMMARY"
+        printf "%-5s %-25s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "$INPUT_BASENAME" "$DETECTED_FORMAT" "$GENE_COUNT" "$VARS_INPUT" "$VARS_OUTPUT" "$SAMPLES" "SUCCESS" >> "$SUMMARY"
         
         TOTAL_EXTRACTED=$((TOTAL_EXTRACTED + 1))
     else
         echo "    ✗ Extraction failed"
-        printf "%-5s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "$DETECTED_FORMAT" "$GENE_COUNT" "$VARS_INPUT" "0" "0" "FAILED" >> "$SUMMARY"
+        printf "%-5s %-25s %-10s %-8s %-15s %-15s %-10s %-12s\n" "$chr" "$INPUT_BASENAME" "$DETECTED_FORMAT" "$GENE_COUNT" "$VARS_INPUT" "0" "0" "FAILED" >> "$SUMMARY"
         TOTAL_FAILED=$((TOTAL_FAILED + 1))
     fi
     
@@ -516,6 +539,7 @@ done
     echo "=========================================="
     echo "Overall Summary"
     echo "=========================================="
+    echo "Input prefix pattern: ${INPUT_PREFIX}"
     echo "Chromosomes processed: $((TOTAL_EXTRACTED + TOTAL_FAILED))"
     echo "Successfully extracted: $TOTAL_EXTRACTED"
     echo "Failed: $TOTAL_FAILED"
@@ -527,6 +551,7 @@ done
 echo "=========================================="
 echo "Genotype Extraction Complete"
 echo "=========================================="
+echo "Input prefix pattern: ${INPUT_PREFIX}"
 echo "Chromosomes processed: $((TOTAL_EXTRACTED + TOTAL_FAILED))"
 echo "Successfully extracted: $TOTAL_EXTRACTED"
 echo "Failed: $TOTAL_FAILED"
@@ -634,6 +659,13 @@ esac
 
 echo ""
 echo "=========================================="
+echo "Input File Pattern Used:"
+echo "  Prefix: ${INPUT_PREFIX}"
+echo "  Examples searched:"
+echo "    - ${INPUT_PREFIX}1.${OUTPUT_EXT}"
+echo "    - ${INPUT_PREFIX}2.${OUTPUT_EXT}"
+echo "    - ${INPUT_PREFIX}X.${OUTPUT_EXT}"
+echo ""
 echo "Log Files:"
 echo "  Main log: $LOG_FILE"
 echo "  Summary:  $SUMMARY"
