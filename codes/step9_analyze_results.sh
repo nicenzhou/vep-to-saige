@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-OUTPUT_DIR="$(dirname "\$0")"
+OUTPUT_DIR="$(dirname "$0")"
 
 #==========================================
 # Display Banner
@@ -28,7 +28,7 @@ if [ $# -eq 0 ]; then
 else
     # Command mode
     INTERACTIVE=false
-    OPERATIONS="\$1"
+    OPERATIONS="1"
 fi
 
 #==========================================
@@ -108,7 +108,7 @@ detect_files() {
 #==========================================
 
 get_pcol() {
-    local file="\$1"
+    local file="$1"
     
     if [ ! -f "$file" ]; then
         echo "ERROR: File $file not found" >&2
@@ -249,7 +249,7 @@ op_findsig() {
 #==========================================
 
 op_topgenes() {
-    local n=\$1
+    local n=$1
     local outfile="$$OUTPUT_DIR/top$${n}_genes.txt"
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -436,7 +436,7 @@ op_qqdata() {
         awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol > 0 {print $$pcol}' | \
         sort -g | \
         awk -v total="$TOTAL_GENES" '{
-            obs = -log(\$1)/log(10)
+            obs = -log($1)/log(10)
             exp = -log((NR-0.5)/total)/log(10)
             print exp "\t" obs
         }' > "$OUTPUT_DIR/qq_plot_data.txt"
@@ -470,13 +470,13 @@ op_mandata() {
     tail -n +2 "$OUTPUT_DIR/all_results.txt" | \
         awk -v pcol="$PCOL" -F'\t' '
         $$pcol != "NA" && $$pcol > 0 {
-            gene = \$1
+            gene = $1
             pval = $pcol
             
             # Try to extract chromosome from gene name or other columns
             chr = "NA"
-            if (\$1 ~ /^chr/) {
-                split(\$1, arr, /[_:]/)
+            if ($1 ~ /^chr/) {
+                split($1, arr, /[_:]/)
                 chr = arr[1]
                 gsub("chr", "", chr)
             }
@@ -499,7 +499,7 @@ op_mandata() {
 #==========================================
 
 run_operation() {
-    local op=\$1
+    local op=$1
     
     case $op in
         mergechrom)
@@ -722,10 +722,10 @@ echo "# Find specific gene:"
 echo "  grep -i 'GENE_NAME' all_results.txt"
 echo ""
 echo "# Extract genes with MAC > 100:"
-echo "  awk -F'\t' '\$MAC_COLUMN > 100' all_results.txt > high_mac_results.txt"
+echo "  awk -F'\t' '$MAC_COLUMN > 100' all_results.txt > high_mac_results.txt"
 echo ""
 echo "# Sort by beta (effect size) - adjust column number:"
-echo "  (head -1 all_results.txt; tail -n +2 all_results.txt | sort -t\$'\\t' -k3,3gr) > sorted_by_beta.txt"
+echo "  (head -1 all_results.txt; tail -n +2 all_results.txt | sort -t$'\\t' -k3,3gr) > sorted_by_beta.txt"
 echo ""
 
 echo "=========================================="
