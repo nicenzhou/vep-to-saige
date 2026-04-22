@@ -1,4 +1,3 @@
-#!/bin/bash
 # saige_config_template.txt
 # Complete SAIGE-GENE Step 2 Configuration File
 # Copy this file and modify for your analysis
