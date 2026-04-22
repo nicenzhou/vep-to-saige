@@ -27,7 +27,7 @@ Usage: step5_match_genes_to_groups.sh <gene_coords_dir> <group_file> <output_dir
 
 Description:
   Match genes in SAIGE group file with Ensembl coordinates.
-  Create PLINK2-compatible region files for genotype extraction.
+  Create PLINK2-compatible region files in BED format for genotype extraction.
   Optionally regenerate missing genes from variant positions.
 
 Arguments:
@@ -49,7 +49,7 @@ Input Files (group_file):
   - Variant format: chr:pos:ref:alt
 
 Output Files (merge_regen=yes):
-  - chr*_regions.txt        PLINK2 region files (chr:start-end format)
+  - chr*_regions.txt        PLINK2 region files (BED format: chr start end gene)
   - chr*_gene_list.txt      Gene symbols for each chromosome
   - matched_genes.txt       All matched genes with coordinates
   - missing_genes.txt       Genes in groups but not in coordinates
@@ -65,6 +65,13 @@ Output Files (merge_regen=no):
   - regenerated_genes.txt         Regenerated genes with coordinates
   - missing_genes.txt             Genes still missing
   - matching_summary.txt          Detailed summary statistics
+
+Region File Format (BED):
+  Column 1: Chromosome (without 'chr' prefix)
+  Column 2: Start position (0-based)
+  Column 3: End position (1-based)
+  Column 4: Gene symbol
+  Column 5: Gene ID (or "REGENERATED" for regenerated genes)
 
 Force Regenerate Mode:
   When force_regen=yes, missing genes are regenerated using variant positions:
@@ -156,6 +163,7 @@ echo "  Output directory: $OUTPUT_DIR"
 echo "  Buffer size: ${BUFFER_KB}kb (±$((BUFFER_KB * 1000)) bp)"
 echo "  Force regenerate: $FORCE_REGEN"
 echo "  Merge regenerated: $MERGE_REGEN"
+echo "  Output format: BED (chr start end gene gene_id)"
 if [ "$FORCE_REGEN" = "yes" ]; then
     echo "  Regenerate buffer: ${BUFFER_KB}kb + 10kb safety = $((BUFFER_KB + 10))kb total"
     if [ "$MERGE_REGEN" = "yes" ]; then
@@ -248,7 +256,7 @@ for COORD_FILE in "$GENE_COORDS_DIR"/chr*_genes.txt; do
         # Append to all matched genes
         cat "$OUTPUT_DIR/chr${CHR}_matched_temp.txt" >> "$OUTPUT_DIR/matched_genes.txt"
         
-        # Create PLINK2 region file with buffer
+        # Create PLINK2 region file with buffer in BED format
         awk -F'\t' -v buffer="$BUFFER_KB" -v chr="$CHR" '
         BEGIN {
             buffer_bp = buffer * 1000
@@ -262,11 +270,14 @@ for COORD_FILE in "$GENE_COORDS_DIR"/chr*_genes.txt; do
             # Ensure start is not negative
             if (start < 1) start = 1
             
-            # PLINK2 format: chr:start-end
-            region = chr ":" start "-" end
+            # BED format: chr start end gene gene_id
+            # Note: BED uses 0-based start, 1-based end
+            # Adjust start to 0-based
+            bed_start = start - 1
+            if (bed_start < 0) bed_start = 0
             
-            # Output: region gene_symbol gene_id
-            print region "\t" gene "\t" gene_id
+            # Output: chr start(0-based) end(1-based) gene gene_id
+            print chr "\t" bed_start "\t" end "\t" gene "\t" gene_id
         }
         ' "$OUTPUT_DIR/chr${CHR}_matched_temp.txt" > "$OUTPUT_DIR/chr${CHR}_regions.txt"
         
@@ -275,10 +286,10 @@ for COORD_FILE in "$GENE_COORDS_DIR"/chr*_genes.txt; do
         
         REGION_COUNT=$(wc -l < "$OUTPUT_DIR/chr${CHR}_regions.txt")
         
-        echo "   Matched: $MATCHED genes → $REGION_COUNT regions"
+        echo "    ✓ Matched: $MATCHED genes → $REGION_COUNT regions"
         printf "%-5s %-12s %-12s %-12s\n" "$CHR" "$MATCHED" "$REGION_COUNT" "Success" >> "$SUMMARY_FILE"
     else
-        echo "   Matched: 0 genes (skipped)"
+        echo "    ✗ Matched: 0 genes (skipped)"
         printf "%-5s %-12s %-12s %-12s\n" "$CHR" "0" "0" "No matches" >> "$SUMMARY_FILE"
     fi
     
@@ -359,8 +370,7 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
                 n_vars = 0
                 
                 # Extract variant positions (skip first two fields: gene name and "var")
-                for (i = 3; i <= NF; i++) {
-                    variant = $i
+                for (i = 3; i <= NF; i++) { variant = $i
                     
                     # Parse chr:pos:ref:alt
                     split(variant, parts, ":")
@@ -396,11 +406,15 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
                     
                     if (start < 1) start = 1
                     
-                    # Output regenerated gene info (chr WITHOUT prefix)
+                    # BED format: 0-based start, 1-based end
+                    bed_start = start - 1
+                    if (bed_start < 0) bed_start = 0
+                    
+                    # Output regenerated gene info (1-based for internal tracking)
                     print gene "\tREGENERATED\t" chr "\t" start "\t" end "\tNA\tNA\t" n_vars >> output
                     
-                    # Output region for PLINK2 (chr WITHOUT prefix)
-                    print chr ":" start "-" end "\t" gene "\tREGENERATED" >> regions
+                    # Output BED region for PLINK2 (0-based start, 1-based end)
+                    print chr "\t" bed_start "\t" end "\t" gene "\tREGENERATED" >> regions
                     
                     regen_count++
                 }
@@ -426,13 +440,9 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
             echo "  Merging regenerated genes into main output files..."
     
             # Merge regenerated regions into chromosome-specific files
-            while IFS=$'\t' read -r region gene source; do
-                # Extract chromosome from region (format: chr:start-end)
-                # Remove 'chr' prefix and get just the number/letter
-                CHR=$(echo "$region" | sed 's/^chr//; s/:.*//')
-        
+            while IFS=$'\t' read -r chr start end gene source; do
                 # Append to chromosome region file (create if doesn't exist)
-                echo -e "${region}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${CHR}_regions_temp.txt"
+                echo -e "${chr}\t${start}\t${end}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${chr}_regions_temp.txt"
         
             done < "$OUTPUT_DIR/regenerated_regions_temp.txt"
     
@@ -447,24 +457,13 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
                     {
                         [ -f "$MAIN_REGION" ] && cat "$MAIN_REGION"
                         [ -f "$TEMP_REGION" ] && cat "$TEMP_REGION"
-                    } | awk -F'\t' '
-                    {
-                        # Extract start position from region (format: chr:start-end)
-                        region = $1
-                        split(region, parts, ":")
-                        split(parts[2], coords, "-")
-                        start = coords[1]
-                
-                        # Store line with start position for sorting
-                        print start "\t" $0
-                    }
-                    ' | sort -k1,1n | cut -f2- | awk '!seen[$0]++' > "$MAIN_REGION.sorted"
+                    } | sort -k2,2n | awk '!seen[$4]++' > "$MAIN_REGION.sorted"
             
                     mv "$MAIN_REGION.sorted" "$MAIN_REGION"
                     rm -f "$TEMP_REGION"
             
                     # Regenerate gene list from sorted regions (preserves genomic order)
-                    cut -f2 "$MAIN_REGION" > "$MAIN_GENES"
+                    cut -f4 "$MAIN_REGION" > "$MAIN_GENES"
                 fi
             done
     
@@ -485,13 +484,9 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
             echo "  Saving regenerated genes to separate *_recovered.txt files..."
     
             # Create separate chromosome-specific files for regenerated genes
-            while IFS=$'\t' read -r region gene source; do
-                # Extract chromosome from region (format: chr:start-end)
-                # Remove 'chr' prefix and get just the number/letter
-                CHR=$(echo "$region" | sed 's/^chr//; s/:.*//')
-        
+            while IFS=$'\t' read -r chr start end gene source; do
                 # Append to chromosome RECOVERED region file
-                echo -e "${region}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${CHR}_regions_recovered.txt"
+                echo -e "${chr}\t${start}\t${end}\t${gene}\t${source}" >> "$OUTPUT_DIR/chr${chr}_regions_recovered.txt"
         
             done < "$OUTPUT_DIR/regenerated_regions_temp.txt"
     
@@ -502,23 +497,12 @@ if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_MISSING" -gt 0 ]; then
         
                 if [ -f "$RECOVERED_REGION" ]; then
                     # Sort by start coordinate
-                    awk -F'\t' '
-                    {
-                        # Extract start position from region (format: chr:start-end)
-                        region = $1
-                        split(region, parts, ":")
-                        split(parts[2], coords, "-")
-                        start = coords[1]
-                
-                        # Store line with start position for sorting
-                        print start "\t" $0
-                    }
-                    ' "$RECOVERED_REGION" | sort -k1,1n | cut -f2- | awk '!seen[$0]++' > "$RECOVERED_REGION.sorted"
+                    sort -k2,2n "$RECOVERED_REGION" | awk '!seen[$4]++' > "$RECOVERED_REGION.sorted"
             
                     mv "$RECOVERED_REGION.sorted" "$RECOVERED_REGION"
             
                     # Regenerate gene list from sorted regions (preserves genomic order)
-                    cut -f2 "$RECOVERED_REGION" > "$RECOVERED_GENES"
+                    cut -f4 "$RECOVERED_REGION" > "$RECOVERED_GENES"
                 fi
             done
     
@@ -635,7 +619,7 @@ echo "----------------------------------------"
 if [ "$MERGE_REGEN" = "yes" ]; then
     REGION_FILES=$(ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | wc -l)
     if [ "$REGION_FILES" -gt 0 ]; then
-        echo "  Region files (PLINK2 format):"
+        echo "  Region files (BED format):"
         ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | while read f; do
             count=$(wc -l < "$f")
             printf "    %-35s %6s regions\n" "$(basename $f)" "$count"
@@ -646,7 +630,7 @@ else
     # Show both matched and recovered files
     REGION_FILES=$(ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | wc -l)
     if [ "$REGION_FILES" -gt 0 ]; then
-        echo "  Region files (matched genes):"
+        echo "  Region files (matched genes, BED format):"
         ls -1 "$OUTPUT_DIR"/chr*_regions.txt 2>/dev/null | while read f; do
             count=$(wc -l < "$f")
             printf "    %-35s %6s regions\n" "$(basename $f)" "$count"
@@ -656,7 +640,7 @@ else
     
     RECOVERED_FILES=$(ls -1 "$OUTPUT_DIR"/chr*_regions_recovered.txt 2>/dev/null | wc -l)
     if [ "$RECOVERED_FILES" -gt 0 ]; then
-        echo "  Region files (regenerated genes):"
+        echo "  Region files (regenerated genes, BED format):"
         ls -1 "$OUTPUT_DIR"/chr*_regions_recovered.txt 2>/dev/null | while read f; do
             count=$(wc -l < "$f")
             printf "    %-35s %6s regions\n" "$(basename $f)" "$count"
@@ -715,7 +699,7 @@ if [ "$TOTAL_MISSING" -gt 0 ]; then
     echo ""
     
     if [ "$FORCE_REGEN" = "no" ]; then
-        echo "  TIP: Try running with force_regen=yes to regenerate missing genes"
+        echo " TIP: Try running with force_regen=yes to regenerate missing genes"
         echo "     from variant positions:"
         echo ""
         echo "     # Merge regenerated genes with matched:"
@@ -780,10 +764,12 @@ fi
 #==========================================
 
 echo "=========================================="
-echo "Sample Region File (chr1, first 5 lines):"
+echo "Sample BED Region File (chr1, first 5 lines):"
 echo "----------------------------------------"
+echo "Format: chr  start(0-based)  end(1-based)  gene  gene_id"
+echo ""
 if [ -f "$OUTPUT_DIR/chr1_regions.txt" ]; then
-    head -5 "$OUTPUT_DIR/chr1_regions.txt" | awk '{printf "  %-35s %-15s %s\n", $1, $2, $3}'
+    head -5 "$OUTPUT_DIR/chr1_regions.txt" | awk '{printf "  %-5s %-12s %-12s %-15s %s\n", $1, $2, $3, $4, $5}'
     echo ""
 else
     echo "  (No chr1 regions generated)"
@@ -791,9 +777,9 @@ else
 fi
 
 if [ "$MERGE_REGEN" = "no" ] && [ -f "$OUTPUT_DIR/chr1_regions_recovered.txt" ]; then
-    echo "Sample Recovered Region File (chr1, first 5 lines):"
+    echo "Sample BED Recovered Region File (chr1, first 5 lines):"
     echo "----------------------------------------"
-    head -5 "$OUTPUT_DIR/chr1_regions_recovered.txt" | awk '{printf "  %-35s %-15s %s\n", $1, $2, $3}'
+    head -5 "$OUTPUT_DIR/chr1_regions_recovered.txt" | awk '{printf "  %-5s %-12s %-12s %-15s %s\n", $1, $2, $3, $4, $5}'
     echo ""
 fi
 
@@ -807,5 +793,6 @@ echo "=========================================="
 
 rm -f "$OUTPUT_DIR/genes_in_groups.txt"
 rm -f "$OUTPUT_DIR/all_matched_genes.txt"
+rm -f "$OUTPUT_DIR"/chr*_regions_temp.txt
 
 exit 0
