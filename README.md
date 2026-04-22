@@ -210,37 +210,48 @@ Download Ensembl gene coordinates to match with SAIGE group files.
 
 ### Step 5: Match Genes to Groups
 
-Match gene coordinates with SAIGE group files and create PLINK2a region files.
+Match gene coordinates with SAIGE group files and create PLINK2a-compatible region files in BED format.
 
 **Usage:**
-```bash
+```
 ./step5_match_genes_to_groups.sh <gene_coords_dir> <group_file> <output_dir> [buffer_kb] [force_regen] [merge_regen]
 ```
 
 **Arguments:**
-- ```gene_coords_dir``` - Directory with ```chr*_genes.txt``` files
+- ```gene_coords_dir``` - Directory with ```chr*_genes.txt``` files (from gene coordinate extraction)
 - ```group_file``` - SAIGE group file (from Step 3)
-- ```output_dir``` - Output directory for region files
+- ```output_dir``` - Output directory for region files (default: plink_regions)
 - ```buffer_kb``` - Buffer around genes in kb (default: 10)
-- ```force_regen```  - Force regenerate missing genes: yes/no (default: no)
+- ```force_regen``` - Force regenerate missing genes: yes/no (default: no)
 - ```merge_regen``` - Merge regenerated genes with matched: yes/no (default: yes)
 
 **Force Regenerate Mode:**
-When ```force_regen=yes```, missing genes are regenerated using variant positions:
+
+When ```force_regen=yes```, missing genes are regenerated using variant positions from the group file:
 
 - **Start position**: First variant position - buffer_kb - 10kb (soft buffer)
 - **End position**: Last variant position + buffer_kb + 10kb (soft buffer)
 - **Total buffer**: User-defined buffer + 10kb safety margin on each side
-- Missing genes are added to a separate ```regenerated_genes.txt``` file
+- **Chromosome extraction**: Automatically extracts chromosome from variant format (chr:pos:ref:alt)
+- Missing genes are saved to ```regenerated_genes.txt``` file
 
-**Merge Options**:
+**Merge Options:**
 
-- **merge_regen=yes** (default): Regenerated genes are merged into main ```chr*_regions.txt``` files, sorted by genomic coordinates
-- **merge_regen=no**: Regenerated genes are saved to separate ```chr*_regions_recovered.txt``` files
+- **merge_regen=yes** (default): 
+  - Regenerated genes are merged into main ```chr*_regions.txt``` files
+  - All regions sorted by genomic coordinates (start position)
+  - Gene lists updated to maintain genomic order
+  - Ideal for streamlined downstream analysis
+
+- **merge_regen=no**: 
+  - Regenerated genes saved to separate ```chr*_regions_recovered.txt``` files
+  - Allows independent quality control of regenerated vs. matched genes
+  - Enables separate statistical analyses if needed
+  - Useful for comparing annotation-based vs. variant-based gene boundaries
 
 **Examples:**
-```bash
-# Extract transferred coordinates
+```
+# Extract gene coordinates (prerequisite)
 tar -xzf gene_coords_ensembl111.tar.gz
 
 # Basic usage - match genes with 10kb buffer (default settings)
@@ -252,25 +263,28 @@ tar -xzf gene_coords_ensembl111.tar.gz
 # Force regenerate missing genes and merge with matched genes
 ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 10 yes yes
 
-# Force regenerate missing genes but keep them separate
+# Force regenerate missing genes but keep them separate for QC
 ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 10 yes no
 
 # Custom 50kb buffer with regeneration and merge
 ./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 50 yes yes
+
+# Large buffer for regulatory regions, keep separate
+./step5_match_genes_to_groups.sh gene_coords all_genes_groups.txt plink_regions 100 yes no
 ```
 
 **Output Files (merge_regen=yes):**
-- ```chr*_regions.txt``` - PLINK2 region files per chromosome (matched + regenerated, sorted by coordinates)
-- ```chr*_gene_list.txt``` - Gene symbols for each chromosome
-- ```matched_genes.txt``` - All matched genes with coordinates
+- ```chr*_regions.txt``` - BED format region files per chromosome (matched + regenerated, sorted by coordinates)
+- ```chr*_gene_list.txt``` - Gene symbols for each chromosome (genomic order)
+- ```matched_genes.txt``` - All matched genes with full coordinates
 - ```regenerated_genes.txt``` - Regenerated genes with coordinates (if force_regen=yes)
-- ```missing_genes.txt``` - Genes still not found after regeneration
-- ```matching_summary.txt``` - Detailed summary statistics
-- ```matching.log``` - Complete processing log
+- ```missing_genes.txt``` - Genes still not found after regeneration attempt
+- ```matching_summary.txt``` - Detailed summary statistics with match rates
+- ```matching.log``` - Complete processing log with timestamps
 
 **Output Files (merge_regen=no):**
-- ```chr*_regions.txt``` - PLINK2 region files (matched genes only)
-- ```chr*_regions_recovered.txt``` - PLINK2 region files (regenerated genes only)
+- ```chr*_regions.txt``` - BED format region files (matched genes only)
+- ```chr*_regions_recovered.txt``` - BED format region files (regenerated genes only)
 - ```chr*_gene_list.txt``` - Gene symbols (matched genes only)
 - ```chr*_gene_list_recovered.txt``` - Gene symbols (regenerated genes only)
 - ```matched_genes.txt``` - Matched genes with coordinates
@@ -279,17 +293,93 @@ tar -xzf gene_coords_ensembl111.tar.gz
 - ```matching_summary.txt``` - Detailed summary statistics
 - ```matching.log``` - Complete processing log
 
-**Region File Format:**
+**Region File Format (BED):**
+
+BED format with 0-based start, 1-based end:
 ```
-# chr:start-end format (PLINK2 compatible)
-1:12345-67890    GENE1    ENSG00000123456
-1:98765-111111   GENE2    ENSG00000789012
+# chr  start(0-based)  end(1-based)  gene_symbol  gene_id
+1      11868           14409         DDX11L1      ENSG00000223972
+1      14403           29570         WASH7P       ENSG00000227232
+1      69090           70008         OR4F5        ENSG00000186092
+```
+
+For regenerated genes:
+```
+# chr  start(0-based)  end(1-based)  gene_symbol  source
+2      12345           67890         GENE1        REGENERATED
+3      98765           123456        GENE2        REGENERATED
+```
+
+**Compatible with PLINK2a:**
+```
+# Extract genotypes using BED region file
+plink2a --bfile chr1 \
+  --extract bed1 plink_regions/chr1_regions.txt \
+  --make-bed \
+  --out chr1_genes
 ```
 
 **Workflow Recommendations:**
-1. **First run**: Use default settings to see match rate
-2. **If many missing genes**: Re-run with ```force_regen=yes merge_regen=yes``` to maximize recovery
-3. **For quality control**: Use ```merge_regen=no``` to separately review regenerated genes before merging
+
+1. **Initial Assessment**:
+   ```
+   # First run with default settings to check match rate
+   ./step5_match_genes_to_groups.sh gene_coords groups.txt output 10
+   # Review matching_summary.txt for match statistics
+   ```
+
+2. **High Match Rate (>95%)**:
+   ```
+   # Proceed with matched genes only
+   ./step5_match_genes_to_groups.sh gene_coords groups.txt output 10
+   ```
+
+3. **Moderate Match Rate (80-95%)**:
+   ```
+   # Regenerate and merge for maximum recovery
+   ./step5_match_genes_to_groups.sh gene_coords groups.txt output 10 yes yes
+   ```
+
+4. **Low Match Rate (<80%) or Quality Control**:
+   ```
+   # Regenerate but keep separate for review
+   ./step5_match_genes_to_groups.sh gene_coords groups.txt output 10 yes no
+   ```
+
+5. **Custom Buffer Sizes**:
+   - **Small buffer (10kb)**: Coding regions and immediate regulatory elements
+   - **Medium buffer (50kb)**: Include proximal regulatory regions
+   - **Large buffer (100kb)**: Include distal regulatory elements and TADs
+
+**Quality Control Checks:**
+
+```
+# Check match statistics
+cat plink_regions/matching_summary.txt
+
+# View first few regions
+head plink_regions/chr1_regions.txt
+
+# Count genes per chromosome
+for i in {1..22}; do 
+  echo "Chr$i: $(wc -l < plink_regions/chr${i}_regions.txt) genes"
+done
+
+# Compare matched vs regenerated (if merge_regen=no)
+echo "Matched: $(wc -l < plink_regions/matched_genes.txt)"
+echo "Regenerated: $(wc -l < plink_regions/regenerated_genes.txt)"
+echo "Missing: $(wc -l < plink_regions/missing_genes.txt)"
+```
+
+**Troubleshooting:**
+
+| Issue | Solution |
+|-------|----------|
+| Many missing genes | Use ```force_regen=yes``` to recover from variant positions |
+| Gene symbol mismatch | Check Ensembl release version matches your annotation |
+| No variants for gene | Gene may not have qualifying variants in group file |
+| Regenerated boundaries too wide | Reduce buffer_kb parameter |
+| Overlapping regions | Normal; PLINK2a handles overlaps correctly |
 
 ---
 
