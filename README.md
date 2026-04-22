@@ -69,7 +69,7 @@ EOF
 ./step8_run_saige_gene_tests.sh saige_config.txt
 
 # Analyze results
-./saige_results/analyze_results.sh
+./saige_results/step9_analyze_results.sh
 ```
 
 ---
@@ -195,7 +195,7 @@ EOF
 ./step8_run_saige_gene_tests.sh saige_config.txt
 
 # Analyze results
-./saige_results/analyze_results.sh
+./saige_results/step9_analyze_results.sh
 ```
 
 --- 
@@ -227,7 +227,8 @@ EOF
 # │   ├── chr*_combined_results.txt  # If MERGE_CHUNKS=yes
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
-# │   └── saige_run.log
+# │   ├── saige_run.log
+# │   └── step9_analyze_results.sh
 # └── *.sh                       # Pipeline scripts
 ```
 
@@ -869,7 +870,7 @@ nano my_config.txt
 ./step8_run_saige_gene_tests.sh my_config.txt
 
 # Step 4: Analyze results
-./saige_results/analyze_results.sh
+./saige_results/step9_analyze_results.sh
 ```
 
 **Key Configuration Parameters:**
@@ -909,7 +910,7 @@ With chunk merging (MERGE_CHUNKS=yes):
 - ```...```
 - ```saige_run_summary.txt``` - Job summary
 - ```saige_run.log``` - Detailed log
-- ```analyze_results.sh``` - Auto-generated analysis script
+- ```step9_analyze_results.sh``` - Auto-generated analysis script
 
 Without chunk merging (MERGE_CHUNKS=no):
 - ```chr1_chunk1_results.txt``` - Individual chunk results
@@ -922,7 +923,7 @@ Without chunk merging (MERGE_CHUNKS=no):
 
 ```
 # Analyze results (auto-generated script)
-./saige_results/analyze_results.sh
+./saige_results/step9_analyze_results.sh
 
 # Manual result combination
 head -1 saige_results/chr1_combined_results.txt > all_results.txt
