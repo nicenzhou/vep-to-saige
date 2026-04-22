@@ -1,4 +1,6 @@
 # saige_config.txt
+# for step8 to running the SAIGE GWAS step2
+
 GENOTYPE_DIR=gene_bfiles
 OUTPUT_DIR=saige_results
 GMMAT_MODEL=step1_null_model.rda
