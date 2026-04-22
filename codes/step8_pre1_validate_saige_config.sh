@@ -1,11 +1,11 @@
 #!/bin/bash
-# validate_saige_config.sh
+# step8_pre1_validate_saige_config.sh
 # Validates SAIGE configuration file before running analysis
 
 CONFIG_FILE="$1"
 
 if [ -z "$CONFIG_FILE" ]; then
-    echo "Usage: ./validate_saige_config.sh <config_file>"
+    echo "Usage: ./step8_pre1_validate_saige_config.sh <config_file>"
     exit 1
 fi
 
