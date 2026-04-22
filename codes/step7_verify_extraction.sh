@@ -6,6 +6,38 @@
 
 set -euo pipefail
 
+#==========================================
+# Usage Information
+#==========================================
+
+usage() {
+    cat << EOF
+Usage: ./step7_verify_extraction.sh <gene_bfiles_dir> <regions_dir> [output_report] [output_format]
+
+Description:
+  Verify PLINK2a extraction quality and completeness for gene-based files.
+  Supports both chunked and non-chunked file formats.
+
+Arguments:
+  gene_bfiles_dir   - Directory containing extracted gene bfiles/pfiles
+  regions_dir       - Directory containing PLINK region files
+  output_report     - Output report file (default: gene_bfiles_dir/verification_report.txt)
+  output_format     - Output format: bfile, pgen, vcf, bgen (default: bfile)
+
+Examples:
+  ./step7_verify_extraction.sh gene_bfiles plink_regions
+  ./step7_verify_extraction.sh gene_bfiles plink_regions my_report.txt pgen
+  ./step7_verify_extraction.sh output/genes regions verification.txt vcf
+
+EOF
+    exit 1
+}
+
+# Show usage if no arguments
+if [ $# -eq 0 ]; then
+    usage
+fi
+
 BFILES_DIR="${1:-gene_bfiles}"
 REGIONS_DIR="${2:-plink_regions}"
 REPORT="${3:-${BFILES_DIR}/verification_report.txt}"
@@ -68,8 +100,8 @@ echo "  Checking for chunked and non-chunked files..." >&2
     BFILE="$BFILES_DIR/chr${chr}_genes"
     REGIONS="$REGIONS_DIR/chr${chr}_regions.txt"
     
-    # Check for chunked files
-    CHUNK_FILES=($BFILES_DIR/chr${chr}_genes_chunk*.${MAIN_EXT} 2>/dev/null)
+    # Check for chunked files - FIX: Use proper array initialization
+    CHUNK_FILES=("$BFILES_DIR"/chr${chr}_genes_chunk*.${MAIN_EXT})
     HAS_CHUNKS=false
     
     if [ -e "${CHUNK_FILES[0]}" ]; then
