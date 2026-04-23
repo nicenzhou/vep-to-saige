@@ -118,8 +118,16 @@ esac
 
 CHR_PREFIX="${CHR_PREFIX:-chr}"
 CHR_PADDING="${CHR_PADDING:-auto}"
+CHUNK_PATTERN="${CHUNK_PATTERN:-chunk}"
+CHUNKED_INPUT="${CHUNKED_INPUT:-no}"
+
 echo "  Chromosome prefix: '$CHR_PREFIX'"
 echo "  Chromosome padding: $CHR_PADDING"
+echo "  Chunked input: $CHUNKED_INPUT"
+
+if [ "$CHUNKED_INPUT" = "yes" ]; then
+    echo "  Chunk pattern: $CHUNK_PATTERN"
+fi
 
 if [[ ! "$CHR_PADDING" =~ ^(auto|yes|no)$ ]]; then
     echo "    ⚠ WARNING: CHR_PADDING should be 'auto', 'yes', or 'no'"
@@ -145,6 +153,14 @@ KEEP_CHUNK_FILES="${KEEP_CHUNK_FILES:-yes}"
 echo "  Merge chunks: $MERGE_CHUNKS"
 echo "  Keep chunk files: $KEEP_CHUNK_FILES"
 
+ALLELE_ORDER="${ALLELE_ORDER:-alt-first}"
+echo "  Allele order: $ALLELE_ORDER"
+
+if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
+    echo "    ⚠ WARNING: ALLELE_ORDER should be 'alt-first' or 'ref-first'"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
 echo ""
 echo "Checking SAIGE parameters..."
 echo ""
@@ -162,9 +178,9 @@ echo "  maxMAF_in_groupTest: ${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
 echo "  annotation_in_groupTest: ${annotation_in_groupTest:-lof,missense;lof,missense;lof;synonymous}"
 
 r_corr="${r_corr:-0}"
-echo "  r.corr: $r_corr"
+echo "  r_corr: $r_corr"
 if [[ ! "$r_corr" =~ ^[01]$ ]]; then
-    echo "    ⚠ WARNING: r.corr should be 0 or 1"
+    echo "    ⚠ WARNING: r_corr should be 0 or 1"
     WARNINGS=$((WARNINGS + 1))
 fi
 
@@ -181,29 +197,117 @@ echo ""
 
 # Count genotype files
 if [ -d "$GENOTYPE_DIR" ]; then
+    
+    # Determine file extension based on format
     case "$INPUT_FORMAT" in
         bgen)
-            GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.bgen 2>/dev/null | wc -l)
+            FILE_EXT="bgen"
             ;;
         bfile)
-            GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.bed 2>/dev/null | wc -l)
+            FILE_EXT="bed"
             ;;
         pgen)
-            GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.pgen 2>/dev/null | wc -l)
+            FILE_EXT="pgen"
             ;;
         vcf)
-            GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.vcf.gz 2>/dev/null | wc -l)
+            FILE_EXT="vcf.gz"
             ;;
     esac
     
-    echo "  Found $GENO_COUNT genotype files in $GENOTYPE_DIR"
-    
-    if [ "$GENO_COUNT" -eq 0 ]; then
-        echo "    ⚠ WARNING: No genotype files found"
-        WARNINGS=$((WARNINGS + 1))
+    if [ "$CHUNKED_INPUT" = "yes" ]; then
+        # Check for chunked files
+        GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*.${FILE_EXT} 2>/dev/null | wc -l)
+        echo "  Found $GENO_COUNT chunked genotype files"
+        echo "  Pattern: ${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*.${FILE_EXT}"
+        
+        if [ "$GENO_COUNT" -eq 0 ]; then
+            echo "    ⚠ WARNING: No chunked genotype files found"
+            WARNINGS=$((WARNINGS + 1))
+        else
+            # Show sample files
+            echo ""
+            echo "  Sample chunked files found:"
+            ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*.${FILE_EXT} 2>/dev/null | head -3 | while read file; do
+                echo "    - $(basename "$file")"
+            done
+            
+            # Count chunks per chromosome
+            echo ""
+            echo "  Chunks per chromosome:"
+            for chr in {1..22} X Y; do
+                if [ "$CHR_PADDING" = "yes" ] || ([ "$CHR_PADDING" = "auto" ] && [[ "$chr" =~ ^[0-9]$ ]]); then
+                    CHR_NUM=$(printf "%02d" "$chr" 2>/dev/null || echo "$chr")
+                else
+                    CHR_NUM="$chr"
+                fi
+                
+                CHUNK_COUNT=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}${CHR_NUM}_genes_${CHUNK_PATTERN}*.${FILE_EXT} 2>/dev/null | wc -l)
+                
+                if [ "$CHUNK_COUNT" -gt 0 ]; then
+                    echo "    Chr${chr}: $CHUNK_COUNT chunks"
+                fi
+            done
+        fi
+    else
+        # Check for non-chunked files
+        GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes.${FILE_EXT} 2>/dev/null | wc -l)
+        echo "  Found $GENO_COUNT non-chunked genotype files"
+        echo "  Pattern: ${CHR_PREFIX}*_genes.${FILE_EXT}"
+        
+        if [ "$GENO_COUNT" -eq 0 ]; then
+            # Also check for generic pattern
+            GENO_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.${FILE_EXT} 2>/dev/null | wc -l)
+            echo "  Found $GENO_COUNT total .$FILE_EXT files in directory"
+            
+            if [ "$GENO_COUNT" -eq 0 ]; then
+                echo "    ⚠ WARNING: No genotype files found"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+        else
+            # Show sample files
+            echo ""
+            echo "  Sample files found:"
+            ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes.${FILE_EXT} 2>/dev/null | head -5 | while read file; do
+                echo "    - $(basename "$file")"
+            done
+        fi
     fi
 else
     echo "  ⚠ WARNING: Cannot check genotype files (directory not found)"
+fi
+
+# Check for companion files (bgen needs .bgi, vcf needs .tbi, etc.)
+if [ -d "$GENOTYPE_DIR" ] && [ "$GENO_COUNT" -gt 0 ]; then
+    echo ""
+    echo "Checking companion index files..."
+    
+    case "$INPUT_FORMAT" in
+        bgen)
+            INDEX_EXT="bgen.bgi"
+            INDEX_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.bgen.bgi 2>/dev/null | wc -l)
+            ;;
+        vcf)
+            INDEX_EXT="vcf.gz.tbi"
+            INDEX_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.vcf.gz.tbi 2>/dev/null | wc -l)
+            ;;
+        bfile)
+            INDEX_EXT="bim"
+            INDEX_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.bim 2>/dev/null | wc -l)
+            ;;
+        pgen)
+            INDEX_EXT="pvar"
+            INDEX_COUNT=$(ls -1 "$GENOTYPE_DIR"/*.pvar 2>/dev/null | wc -l)
+            ;;
+    esac
+    
+    if [ -n "$INDEX_EXT" ]; then
+        echo "  Found $INDEX_COUNT .$INDEX_EXT files"
+        
+        if [ "$INDEX_COUNT" -lt "$GENO_COUNT" ]; then
+            echo "    ⚠ WARNING: Fewer index files than genotype files"
+            WARNINGS=$((WARNINGS + 1))
+        fi
+    fi
 fi
 
 echo ""
