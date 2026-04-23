@@ -93,7 +93,7 @@ CHUNKED_INPUT="${CHUNKED_INPUT:-no}"
 if [ "$CHUNKED_INPUT" = "yes" ]; then
     read -p "Chunk pattern in filename [chunk]: " CHUNK_PATTERN
     CHUNK_PATTERN="${CHUNK_PATTERN:-chunk}"
-    echo "  Expected file naming: $${CHR_PREFIX}*_genes_$${CHUNK_PATTERN}*"
+    echo "  Expected file naming: ${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*"
 else
     CHUNK_PATTERN="chunk"
 fi
@@ -280,7 +280,7 @@ minMAC=$minMAC
 EOF
 
 if [ -n "$maxMissing" ]; then
-    echo "maxMissing=$$maxMissing" >> "$$CONFIG_FILE"
+    echo "maxMissing=$maxMissing" >> "$CONFIG_FILE"
 fi
 
 cat >> "$CONFIG_FILE" << EOF
@@ -295,7 +295,7 @@ is_Firth_beta=$is_Firth_beta
 EOF
 
 if [ -n "$pCutoffforFirth" ]; then
-    echo "pCutoffforFirth=$$pCutoffforFirth" >> "$$CONFIG_FILE"
+    echo "pCutoffforFirth=$pCutoffforFirth" >> "$CONFIG_FILE"
 fi
 
 # Add SPA cutoff
@@ -314,10 +314,10 @@ if [ "$is_imputed_data" = "TRUE" ]; then
 # Imputed data parameters
 is_imputed_data=$is_imputed_data
 EOF
-    [ -n "$$minInfo" ] && echo "minInfo=$$minInfo" >> "$CONFIG_FILE"
-    [ -n "$$dosage_zerod_cutoff" ] && echo "dosage_zerod_cutoff=$$dosage_zerod_cutoff" >> "$CONFIG_FILE"
-    [ -n "$$dosage_zerod_MAC_cutoff" ] && echo "dosage_zerod_MAC_cutoff=$$dosage_zerod_MAC_cutoff" >> "$CONFIG_FILE"
-    [ -n "$$impute_method" ] && echo "impute_method=$$impute_method" >> "$CONFIG_FILE"
+    [ -n "$minInfo" ] && echo "minInfo=$minInfo" >> "$CONFIG_FILE"
+    [ -n "$dosage_zerod_cutoff" ] && echo "dosage_zerod_cutoff=$dosage_zerod_cutoff" >> "$CONFIG_FILE"
+    [ -n "$dosage_zerod_MAC_cutoff" ] && echo "dosage_zerod_MAC_cutoff=$dosage_zerod_MAC_cutoff" >> "$CONFIG_FILE"
+    [ -n "$impute_method" ] && echo "impute_method=$impute_method" >> "$CONFIG_FILE"
 fi
 
 # Add output parameters
@@ -406,19 +406,19 @@ else
 fi
 
 # Validate input format
-if [[ ! "$$INPUT_FORMAT" =~ ^(bgen|bfile|pgen|vcf)$$ ]]; then
+if [[ ! "$INPUT_FORMAT" =~ ^(bgen|bfile|pgen|vcf)$ ]]; then
     echo "⚠ WARNING: Invalid input format '$INPUT_FORMAT' (should be bgen, bfile, pgen, or vcf)"
     ERRORS=$((ERRORS + 1))
 fi
 
 # Validate allele order
-if [[ ! "$$ALLELE_ORDER" =~ ^(alt-first|ref-first)$$ ]]; then
+if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
     echo "⚠ WARNING: Invalid allele order '$ALLELE_ORDER' (should be alt-first or ref-first)"
     ERRORS=$((ERRORS + 1))
 fi
 
 # Validate r_corr
-if [[ ! "$$r_corr" =~ ^[01]$$ ]]; then
+if [[ ! "$r_corr" =~ ^[01]$ ]]; then
     echo "⚠ WARNING: r_corr should be 0 (SKAT-O) or 1(Burden), got: $r_corr"
     WARNINGS=$((WARNINGS + 1))
 fi
@@ -493,7 +493,7 @@ fi
 
 # Validate boolean parameters
 for param in LOCO is_Firth_beta is_output_markerList_in_groupTest is_imputed_data; do
-    eval value=\$$param
+    eval value=$param
     if [ -n "$value" ] && [[ ! "$value" =~ ^(TRUE|FALSE)$ ]]; then
         echo "⚠ WARNING: $param should be TRUE or FALSE, got: $value"
         WARNINGS=$((WARNINGS + 1))
