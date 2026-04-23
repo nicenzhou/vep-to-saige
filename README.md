@@ -1,6 +1,16 @@
-# vep-to-saige: VEP Annotations to SAIGE Gene Groups Pipeline
+# vep-to-saige: VEP Annotations to SAIGE Gene-Based Association Pipeline
 
-Convert VEP-annotated VCF files into SAIGE-compatible gene group files for rare variant burden testing.
+Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run genome-wide set-based association analysis for rare variants.
+
+## Overview
+
+This pipeline processes VEP-annotated VCF files to create gene-based variant groups and performs rare variant association testing using SAIGE-GENE. It supports:
+
+- **VEP annotation parsing** - Extract functional annotations from VEP-annotated VCFs
+- **Gene group generation** - Create variant sets grouped by genes and functional categories
+- **Genotype extraction** - Extract gene-specific genotypes in multiple formats (BGEN, PLINK, PGEN, VCF)
+- **SAIGE-GENE testing** - Run genome-wide gene-based burden and SKAT-O tests
+- **Result analysis** - Identify significant gene associations
 
 ---
 
