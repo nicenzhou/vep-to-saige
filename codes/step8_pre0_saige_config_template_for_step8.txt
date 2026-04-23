@@ -39,6 +39,19 @@ CHR_PADDING=auto                               # Options: auto, yes, no
                                                # no: chr1, chr2, ... chr22
 
 #==========================================================================
+# CHUNKED FILE CONFIGURATION
+#==========================================================================
+
+# Chunked input files
+CHUNKED_INPUT=no                               # Are genotype files chunked? (yes/no)
+                                               # yes: files named like chr1_genes_chunk1.bgen
+                                               # no: files named like chr1_genes.bgen
+
+CHUNK_PATTERN=chunk                            # Pattern to identify chunk files
+                                               # Default: chunk
+                                               # Looks for files: chr*_genes_chunk*.{bgen/bed/pgen/vcf.gz}
+
+#==========================================================================
 # PROCESSING CONTROL
 #==========================================================================
 
@@ -49,10 +62,6 @@ THREADS=8                                      # Number of CPU threads for SAIGE
 CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
 # CHROMOSOMES=1,2,3,21,22                      # Example: subset of chromosomes
 # CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,X,Y  # Include sex chromosomes
-
-# Chunk identification
-CHUNK_PATTERN=chunk                            # Pattern to identify chunk files
-                                               # Looks for files like: chr1_genes_chunk1.bgen
 
 #==========================================================================
 # RESULT MERGING OPTIONS
@@ -66,6 +75,16 @@ KEEP_CHUNK_FILES=no                            # Keep individual chunk files aft
                                                #   - Deletes chr*_chunk*_results.txt
                                                # If MERGE_CHUNKS=no:
                                                #   - Keeps all chr*_chunk*_results.txt files
+
+#==========================================================================
+# ALLELE CONFIGURATION
+#==========================================================================
+
+# Allele order for BGEN/PLINK files
+ALLELE_ORDER=alt-first                         # Options: alt-first, ref-first
+                                               # alt-first: alternative allele first (default)
+                                               # ref-first: reference allele first
+                                               # Important: must match your data encoding
 
 #==========================================================================
 # SAIGE STEP 2 PARAMETERS
@@ -133,25 +152,27 @@ MACCutoff_to_CollapseUltraRare=10             # Collapse variants with MAC <= cu
                                                # Default: 10
 
 minGroupMAC_in_BurdenTest=5                   # Minimum MAC for burden test pseudo-marker
-                                               # Only used when r.corr=1 (Burden only)
+                                               # Only used when r_corr=1 (Burden only)
 
 #--------------------------------------------------------------------------
 # Test Type and Weights
 #--------------------------------------------------------------------------
 
 # Test correlation parameter
-r.corr=0                                       # 0: SKAT-O (outputs Burden, SKAT, SKAT-O)
+# NOTE: Use r_corr in config (bash variable with underscore)
+#       Script automatically converts to --r.corr for SAIGE
+r_corr=0                                       # 0: SKAT-O (outputs Burden, SKAT, SKAT-O)
                                                # 1: Burden test only
                                                # Default: 0 (recommended)
 
 # Variant weights
-weights.beta=1,25                              # Beta distribution parameters for weights
+weights_beta=1,25                              # Beta distribution parameters for weights
                                                # Format: shape1,shape2
                                                # Default: 1,25 (up-weights rare variants)
                                                # Example: 1,1 (equal weights)
 
 is_no_weight_in_groupTest=FALSE                # Use no weights in gene tests (TRUE/FALSE)
-                                               # If TRUE, ignores weights.beta
+                                               # If TRUE, ignores weights_beta
 
 #--------------------------------------------------------------------------
 # Effect Size Estimation
@@ -209,7 +230,7 @@ is_output_markerList_in_groupTest=TRUE         # Output marker lists for each ge
                                                # Recommended: TRUE for QC
 
 is_single_in_groupTest=TRUE                    # Output single-variant results in gene tests (TRUE/FALSE)
-                                               # Only relevant when r.corr=1 (Burden only)
+                                               # Only relevant when r_corr=1 (Burden only)
                                                # Recommended: TRUE
 
 # Overwrite behavior
@@ -234,10 +255,6 @@ markers_per_chunk_in_groupTest=100             # Markers per chunk when computin
 # Advanced Parameters
 #--------------------------------------------------------------------------
 
-# Allele order for BGEN/PLINK files
-AlleleOrder=                                   # Options: alt-first, ref-first
-                                               # Leave empty for auto-detection
-
 # Variance ratio categories (for conditional analysis)
 cateVarRatioMinMACVecExclude=10,20.5          # Lower bounds for MAC categories
                                                # Format: comma-separated values
@@ -253,7 +270,7 @@ condition=                                     # Variants to condition on
 weights_for_condition=                         # Weights for conditioning markers
                                                # Format: comma-separated values
                                                # Example: 1,2,3
-                                               # If empty, uses Beta(MAF, weights.beta)
+                                               # If empty, uses Beta(MAF, weights_beta)
 
 #==========================================================================
 # EXAMPLE CONFIGURATIONS FOR COMMON SCENARIOS
@@ -262,7 +279,7 @@ weights_for_condition=                         # Weights for conditioning marker
 # Uncomment one of these sections and comment out individual parameters above
 
 #--------------------------------------------------------------------------
-# Example 1: Standard Gene-Based Analysis (Rare Variants)
+# Example 1: Standard Gene-Based Analysis (Rare Variants, Chunked Files)
 #--------------------------------------------------------------------------
 # GENOTYPE_DIR=gene_bfiles
 # OUTPUT_DIR=saige_results_rare
@@ -273,6 +290,9 @@ weights_for_condition=                         # Weights for conditioning marker
 # INPUT_FORMAT=bgen
 # CHR_PREFIX=chr
 # CHR_PADDING=auto
+# CHUNKED_INPUT=yes
+# CHUNK_PATTERN=chunk
+# ALLELE_ORDER=alt-first
 # THREADS=16
 # CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
 # MERGE_CHUNKS=yes
@@ -284,11 +304,11 @@ weights_for_condition=                         # Weights for conditioning marker
 # annotation_in_groupTest=lof,missense;lof;missense
 # is_Firth_beta=TRUE
 # pCutoffforFirth=0.01
-# r.corr=0
+# r_corr=0
 # is_output_markerList_in_groupTest=TRUE
 
 #--------------------------------------------------------------------------
-# Example 2: Burden Test Only (Fast)
+# Example 2: Burden Test Only (Fast, Non-Chunked Files)
 #--------------------------------------------------------------------------
 # GENOTYPE_DIR=gene_bfiles
 # OUTPUT_DIR=saige_results_burden
@@ -297,14 +317,18 @@ weights_for_condition=                         # Weights for conditioning marker
 # GROUP_FILE=all_genes_groups.txt
 # GROUP_FILE_BY_CHR=no
 # INPUT_FORMAT=bgen
+# CHR_PREFIX=chr
+# CHR_PADDING=no
+# CHUNKED_INPUT=no
+# ALLELE_ORDER=alt-first
 # THREADS=8
 # CHROMOSOMES=21,22
-# MERGE_CHUNKS=yes
+# MERGE_CHUNKS=no
 # LOCO=FALSE
 # minMAC=5
 # maxMAF_in_groupTest=0.01
 # annotation_in_groupTest=lof,missense
-# r.corr=1
+# r_corr=1
 # minGroupMAC_in_BurdenTest=10
 # is_Firth_beta=TRUE
 # is_single_in_groupTest=TRUE
@@ -319,6 +343,10 @@ weights_for_condition=                         # Weights for conditioning marker
 # GROUP_FILE_BY_CHR=yes
 # GROUP_DIR=group_files
 # INPUT_FORMAT=pgen
+# CHR_PREFIX=chr
+# CHR_PADDING=auto
+# CHUNKED_INPUT=no
+# ALLELE_ORDER=alt-first
 # THREADS=12
 # CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
 # MERGE_CHUNKS=yes
@@ -327,10 +355,10 @@ weights_for_condition=                         # Weights for conditioning marker
 # maxMAF_in_groupTest=0.05
 # annotation_in_groupTest=lof,missense;lof;missense;synonymous
 # is_Firth_beta=TRUE
-# r.corr=0
+# r_corr=0
 
 #--------------------------------------------------------------------------
-# Example 4: Imputed Data Analysis
+# Example 4: Imputed Data Analysis (Chunked)
 #--------------------------------------------------------------------------
 # GENOTYPE_DIR=gene_bfiles_imputed
 # OUTPUT_DIR=saige_results_imputed
@@ -339,9 +367,15 @@ weights_for_condition=                         # Weights for conditioning marker
 # GROUP_FILE_BY_CHR=yes
 # GROUP_DIR=group_files
 # INPUT_FORMAT=bgen
+# CHR_PREFIX=chr
+# CHR_PADDING=auto
+# CHUNKED_INPUT=yes
+# CHUNK_PATTERN=chunk
+# ALLELE_ORDER=alt-first
 # THREADS=16
 # CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
 # MERGE_CHUNKS=yes
+# KEEP_CHUNK_FILES=no
 # LOCO=TRUE
 # is_imputed_data=TRUE
 # minInfo=0.3
@@ -351,7 +385,109 @@ weights_for_condition=                         # Weights for conditioning marker
 # dosage_zerod_MAC_cutoff=10
 # impute_method=mean
 # is_Firth_beta=TRUE
+# r_corr=0
+# is_output_markerList_in_groupTest=TRUE
 
-#==========================================================================
-# END OF CONFIGURATION
-#==========================================================================
+#--------------------------------------------------------------------------
+# Example 5: PLINK Binary Files (BED/BIM/FAM)
+#--------------------------------------------------------------------------
+# GENOTYPE_DIR=gene_bfiles
+# OUTPUT_DIR=saige_results_plink
+# GMMAT_MODEL=step1_null_model.rda
+# VARIANCE_RATIO=step1_variance_ratio.txt
+# GROUP_FILE_BY_CHR=yes
+# GROUP_DIR=group_files
+# INPUT_FORMAT=bfile
+# CHR_PREFIX=chr
+# CHR_PADDING=no
+# CHUNKED_INPUT=yes
+# CHUNK_PATTERN=chunk
+# ALLELE_ORDER=ref-first
+# THREADS=8
+# CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+# MERGE_CHUNKS=yes
+# KEEP_CHUNK_FILES=no
+# LOCO=TRUE
+# minMAC=1
+# maxMAF_in_groupTest=0.0001,0.001,0.01
+# annotation_in_groupTest=lof,missense;lof
+# r_corr=0
+# is_Firth_beta=TRUE
+
+#--------------------------------------------------------------------------
+# Example 6: VCF Format (Sequencing Data)
+#--------------------------------------------------------------------------
+# GENOTYPE_DIR=gene_vcfs
+# OUTPUT_DIR=saige_results_vcf
+# GMMAT_MODEL=step1_null_model.rda
+# VARIANCE_RATIO=step1_variance_ratio.txt
+# GROUP_FILE_BY_CHR=yes
+# GROUP_DIR=group_files
+# INPUT_FORMAT=vcf
+# CHR_PREFIX=chr
+# CHR_PADDING=yes
+# CHUNKED_INPUT=no
+# ALLELE_ORDER=alt-first
+# THREADS=12
+# CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+# MERGE_CHUNKS=yes
+# LOCO=TRUE
+# minMAC=1
+# maxMAF_in_groupTest=0.0001,0.001,0.01
+# annotation_in_groupTest=lof,missense;lof
+# r_corr=0
+# is_Firth_beta=TRUE
+
+#--------------------------------------------------------------------------
+# Example 7: Ultra-Rare Variants Only (MAF < 0.0001)
+#--------------------------------------------------------------------------
+# GENOTYPE_DIR=gene_bfiles
+# OUTPUT_DIR=saige_results_ultrarare
+# GMMAT_MODEL=step1_null_model.rda
+# VARIANCE_RATIO=step1_variance_ratio.txt
+# GROUP_FILE_BY_CHR=yes
+# GROUP_DIR=group_files
+# INPUT_FORMAT=bgen
+# CHR_PREFIX=chr
+# CHR_PADDING=auto
+# CHUNKED_INPUT=yes
+# CHUNK_PATTERN=chunk
+# ALLELE_ORDER=alt-first
+# THREADS=16
+# CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+# MERGE_CHUNKS=yes
+# KEEP_CHUNK_FILES=no
+# LOCO=TRUE
+# minMAC=1
+# maxMAF_in_groupTest=0.0001
+# annotation_in_groupTest=lof,missense;lof
+# MACCutoff_to_CollapseUltraRare=5
+# r_corr=0
+# weights_beta=1,25
+# is_Firth_beta=TRUE
+
+#--------------------------------------------------------------------------
+# Example 8: Sex Chromosomes (X and Y)
+#--------------------------------------------------------------------------
+# GENOTYPE_DIR=gene_bfiles
+# OUTPUT_DIR=saige_results_sex_chr
+# GMMAT_MODEL=step1_null_model.rda
+# VARIANCE_RATIO=step1_variance_ratio.txt
+# GROUP_FILE_BY_CHR=yes
+# GROUP_DIR=group_files
+# INPUT_FORMAT=bgen
+# CHR_PREFIX=chr
+# CHR_PADDING=no
+# CHUNKED_INPUT=yes
+# CHUNK_PATTERN=chunk
+# ALLELE_ORDER=alt-first
+# THREADS=8
+# CHROMOSOMES=X,Y
+# MERGE_CHUNKS=yes
+# KEEP_CHUNK_FILES=no
+# LOCO=FALSE
+# minMAC=1
+# maxMAF_in_groupTest=0.001,0.01
+# annotation_in_groupTest=lof,missense
+# r_corr=0
+# is_Firth_beta=TRUE
