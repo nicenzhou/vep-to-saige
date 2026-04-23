@@ -112,7 +112,7 @@ EOF
     exit 1
 fi
 
-CONFIG_FILE="\$1"
+CONFIG_FILE="$1"
 
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "ERROR: Configuration file not found: $CONFIG_FILE" >&2
@@ -125,17 +125,17 @@ fi
 
 # Function to format chromosome number based on detected padding
 format_chr() {
-    local chr="\$1"
-    local padding="\$2"
+    local chr="$1"
+    local padding="$2"
     
     # Handle X and Y chromosomes
-    if [[ "$$chr" =~ ^[XYxy]$$ ]]; then
-        echo "$$(echo $$chr | tr '[:lower:]' '[:upper:]')"
+    if [[ "$chr" =~ ^[XYxy]$ ]]; then
+        echo "$(echo $chr | tr '[:lower:]' '[:upper:]')"
         return
     fi
     
     # Remove leading zeros for comparison
-    local chr_num=$$(echo "$$chr" | sed 's/^0*//')
+    local chr_num=$(echo "$chr" | sed 's/^0*//')
     
     if [ "$padding" = "yes" ]; then
         # Zero-pad to 2 digits
@@ -148,30 +148,30 @@ format_chr() {
 
 # Function to detect chromosome padding in files
 detect_chr_padding() {
-    local dir="\$1"
-    local ext="\$2"
-    local prefix="\$3"
+    local dir="$1"
+    local ext="$2"
+    local prefix="$3"
     
     # Check for padded format (chr01, chr02, etc.)
-    if ls "$${dir}/$${prefix}01"* 2>/dev/null | grep -q "\.$${ext}$$"; then
+    if ls "${dir}/${prefix}01"* 2>/dev/null | grep -q "\.${ext}$"; then
         echo "yes"
         return
     fi
     
     # Check for padded format without prefix (01, 02, etc.)
-    if ls "$${dir}/01"* 2>/dev/null | grep -q "\.$${ext}$"; then
+    if ls "${dir}/01"* 2>/dev/null | grep -q "\.${ext}$"; then
         echo "yes"
         return
     fi
     
     # Check for non-padded format (chr1, chr2, etc.)
-    if ls "$${dir}/$${prefix}1"* 2>/dev/null | grep -q "\.$${ext}$$"; then
+    if ls "${dir}/${prefix}1"* 2>/dev/null | grep -q "\.${ext}$"; then
         echo "no"
         return
     fi
     
     # Check for non-padded format without prefix (1, 2, etc.)
-    if ls "$${dir}/1"* 2>/dev/null | grep -q "\.$${ext}$"; then
+    if ls "${dir}/1"* 2>/dev/null | grep -q "\.${ext}$"; then
         echo "no"
         return
     fi
@@ -182,22 +182,22 @@ detect_chr_padding() {
 
 # Function to find genotype file with flexible naming
 find_genotype_file() {
-    local dir="\$1"
-    local chr="\$2"
-    local ext="\$3"
-    local prefix="\$4"
-    local padding="\$5"
-    local pattern="\$6"
+    local dir="$1"
+    local chr="$2"
+    local ext="$3"
+    local prefix="$4"
+    local padding="$5"
+    local pattern="$6"
     
-    local chr_formatted=$$(format_chr "$$chr" "$padding")
+    local chr_formatted=$(format_chr "$chr" "$padding")
     local found_files=()
     
     # Try different naming patterns
     local patterns=(
-        "$${dir}/$${prefix}$${chr_formatted}_genes_$${pattern}*.${ext}"
-        "$${dir}/$${prefix}$${chr_formatted}_genes.$${ext}"
-        "$${dir}/$${chr_formatted}_genes_$${pattern}*.$${ext}"
-        "$${dir}/$${chr_formatted}_genes.${ext}"
+        "${dir}/${prefix}${chr_formatted}_genes_${pattern}*.${ext}"
+        "${dir}/${prefix}${chr_formatted}_genes.${ext}"
+        "${dir}/${chr_formatted}_genes_${pattern}*.${ext}"
+        "${dir}/${chr_formatted}_genes.${ext}"
     )
     
     for pat in "${patterns[@]}"; do
@@ -214,21 +214,21 @@ find_genotype_file() {
 
 # Function to find group file with flexible naming
 find_group_file() {
-    local dir="\$1"
-    local chr="\$2"
-    local prefix="\$3"
-    local padding="\$4"
+    local dir="$1"
+    local chr="$2"
+    local prefix="$3"
+    local padding="$4"
     
-    local chr_formatted=$$(format_chr "$$chr" "$padding")
+    local chr_formatted=$(format_chr "$chr" "$padding")
     
     # Try different naming patterns
     local patterns=(
-        "$${dir}/$${prefix}${chr_formatted}_groups.txt"
-        "$${dir}/$${prefix}${chr_formatted}_group.txt"
-        "$${dir}/$${chr_formatted}_groups.txt"
-        "$${dir}/$${chr_formatted}_group.txt"
-        "$${dir}/chr$${chr_formatted}_groups.txt"
-        "$${dir}/chr$${chr_formatted}_group.txt"
+        "${dir}/${prefix}${chr_formatted}_groups.txt"
+        "${dir}/${prefix}${chr_formatted}_group.txt"
+        "${dir}/${chr_formatted}_groups.txt"
+        "${dir}/${chr_formatted}_group.txt"
+        "${dir}/chr${chr_formatted}_groups.txt"
+        "${dir}/chr${chr_formatted}_group.txt"
     )
     
     for pat in "${patterns[@]}"; do
@@ -243,11 +243,11 @@ find_group_file() {
 
 # Function to merge chunk results by chromosome
 merge_chunk_results() {
-    local chr="\$1"
-    local output_dir="\$2"
-    local keep_chunks="\$3"
+    local chr="$1"
+    local output_dir="$2"
+    local keep_chunks="$3"
     
-    local chunk_files=("$$output_dir"/chr$${chr}_chunk*_results.txt)
+    local chunk_files=("$output_dir"/chr${chr}_chunk*_results.txt)
     
     # Check if any chunk files exist
     if [ ! -f "${chunk_files[0]}" ]; then
@@ -255,27 +255,27 @@ merge_chunk_results() {
         return 1
     fi
     
-    local combined_file="$$output_dir/chr$${chr}_combined_results.txt"
+    local combined_file="$output_dir/chr${chr}_combined_results.txt"
     
-    echo "  Merging $${#chunk_files[@]} chunk files for chr$${chr}..."
+    echo "  Merging ${#chunk_files[@]} chunk files for chr${chr}..."
     
     # Sort chunk files by chunk number to maintain order
-    local sorted_chunks=($$(printf '%s\n' "$${chunk_files[@]}" | sort -V))
+    local sorted_chunks=($(printf '%s\n' "${chunk_files[@]}" | sort -V))
     
     # Get header from first chunk
     if [ -f "${sorted_chunks[0]}" ]; then
-        head -1 "$${sorted_chunks[0]}" > "$$combined_file"
+        head -1 "${sorted_chunks[0]}" > "$combined_file"
         
         # Append data from all chunks (skip headers)
         for chunk_file in "${sorted_chunks[@]}"; do
             if [ -f "$chunk_file" ]; then
-                tail -n +2 "$$chunk_file" >> "$$combined_file"
+                tail -n +2 "$chunk_file" >> "$combined_file"
             fi
         done
         
         # Count total results
-        local total_lines=$$(($$(wc -l < "$combined_file") - 1))
-        echo "    ✓ Combined file created: $$(basename $$combined_file)"
+        local total_lines=$(($(wc -l < "$combined_file") - 1))
+        echo "    ✓ Combined file created: $(basename $combined_file)"
         echo "    Total results: $total_lines"
         
         # Remove chunk files if requested
@@ -332,21 +332,21 @@ KEEP_CHUNK_FILES="${KEEP_CHUNK_FILES:-yes}"
 ALLELE_ORDER="${ALLELE_ORDER:-alt-first}"
 
 # Validate allele order
-if [[ ! "$$ALLELE_ORDER" =~ ^(alt-first|ref-first)$$ ]]; then
+if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
     echo "ERROR: ALLELE_ORDER must be 'alt-first' or 'ref-first', got: $ALLELE_ORDER" >&2
     exit 1
 fi
 
 # Validate directories
-[ ! -d "$$GENOTYPE_DIR" ] && { echo "ERROR: GENOTYPE_DIR not found: $$GENOTYPE_DIR" >&2; exit 1; }
-[ ! -f "$$GMMAT_MODEL" ] && { echo "ERROR: GMMAT_MODEL not found: $$GMMAT_MODEL" >&2; exit 1; }
-[ ! -f "$$VARIANCE_RATIO" ] && { echo "ERROR: VARIANCE_RATIO not found: $$VARIANCE_RATIO" >&2; exit 1; }
+[ ! -d "$GENOTYPE_DIR" ] && { echo "ERROR: GENOTYPE_DIR not found: $GENOTYPE_DIR" >&2; exit 1; }
+[ ! -f "$GMMAT_MODEL" ] && { echo "ERROR: GMMAT_MODEL not found: $GMMAT_MODEL" >&2; exit 1; }
+[ ! -f "$VARIANCE_RATIO" ] && { echo "ERROR: VARIANCE_RATIO not found: $VARIANCE_RATIO" >&2; exit 1; }
 
 mkdir -p "$OUTPUT_DIR"
 
 # Validate group file configuration
 if [ "$GROUP_FILE_BY_CHR" = "yes" ]; then
-    GROUP_DIR="$${GROUP_DIR:-$$GENOTYPE_DIR}"
+    GROUP_DIR="${GROUP_DIR:-$GENOTYPE_DIR}"
     if [ ! -d "$GROUP_DIR" ]; then
         echo "ERROR: GROUP_DIR not found: $GROUP_DIR" >&2
         exit 1
@@ -368,7 +368,7 @@ fi
 # Determine File Extensions
 #==========================================
 
-INPUT_FORMAT=$$(echo "$$INPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
+INPUT_FORMAT=$(echo "$INPUT_FORMAT" | tr '[:upper:]' '[:lower:]')
 
 case "$INPUT_FORMAT" in
     bgen)
@@ -412,11 +412,11 @@ esac
 
 if [ "$CHR_PADDING" = "auto" ]; then
     echo "Auto-detecting chromosome padding format..."
-    CHR_PADDING=$$(detect_chr_padding "$$GENOTYPE_DIR" "$$GENO_EXT" "$$CHR_PREFIX")
+    CHR_PADDING=$(detect_chr_padding "$GENOTYPE_DIR" "$GENO_EXT" "$CHR_PREFIX")
     echo "  Detected padding: $CHR_PADDING"
     
     if [ "$GROUP_FILE_BY_CHR" = "yes" ]; then
-        GROUP_PADDING=$$(detect_chr_padding "$$GROUP_DIR" "txt" "$CHR_PREFIX")
+        GROUP_PADDING=$(detect_chr_padding "$GROUP_DIR" "txt" "$CHR_PREFIX")
         echo "  Group file padding: $GROUP_PADDING"
     fi
 else
@@ -458,18 +458,18 @@ echo ""
 #==========================================
 
 build_saige_params() {
-    local chr="\$1"
+    local chr="$1"
     local params=""
     
     # Add chromosome-specific parameter if LOCO is enabled
     if [ "${LOCO:-FALSE}" = "TRUE" ]; then
         # Use original chromosome number (no prefix, no padding) for SAIGE
-        local chr_num=$$(echo "$$chr" | sed 's/^0*//')
-        params="$$params --chrom=$$chr_num"
+        local chr_num=$(echo "$chr" | sed 's/^0*//')
+        params="$params --chrom=$chr_num"
     fi
     
     # Add AlleleOrder parameter
-    params="$$params --AlleleOrder=$$ALLELE_ORDER"
+    params="$params --AlleleOrder=$ALLELE_ORDER"
     
     # Add optional SAIGE parameters from config
     # NOTE: r_corr in config becomes r.corr for SAIGE
@@ -487,13 +487,13 @@ build_saige_params() {
                  cateVarRatioMinMACVecExclude cateVarRatioMaxMACVecInclude; do
         
         if [ -n "${!param:-}" ]; then
-            params="$$params --$${param}=${!param}"
+            params="$params --${param}=${!param}"
         fi
     done
     
     # Handle r_corr specially (config uses r_corr, SAIGE expects r.corr)
     if [ -n "${r_corr:-}" ]; then
-        params="$$params --r.corr=$${r_corr}"
+        params="$params --r.corr=${r_corr}"
     fi
     
     # Add LOCO flag
@@ -566,14 +566,14 @@ for chr in "${CHR_ARRAY[@]}"; do
     echo "=========================================="
     
     # Format chromosome for file names
-    CHR_FORMATTED=$$(format_chr "$$chr" "$CHR_PADDING")
+    CHR_FORMATTED=$(format_chr "$chr" "$CHR_PADDING")
     
     # Determine group file
     if [ "$GROUP_FILE_BY_CHR" = "yes" ]; then
-        CHR_GROUP_FILE=$$(find_group_file "$$GROUP_DIR" "$$chr" "$$CHR_PREFIX" "$GROUP_PADDING")
+        CHR_GROUP_FILE=$(find_group_file "$GROUP_DIR" "$chr" "$CHR_PREFIX" "$GROUP_PADDING")
         if [ -z "$CHR_GROUP_FILE" ]; then
             echo "  ✗ Group file not found for chromosome $chr"
-            echo "    Tried patterns with chr format: $${CHR_PREFIX}$${CHR_FORMATTED}"
+            echo "    Tried patterns with chr format: ${CHR_PREFIX}${CHR_FORMATTED}"
             echo "  Skipping chromosome $chr"
             echo ""
             continue
@@ -590,11 +590,11 @@ for chr in "${CHR_ARRAY[@]}"; do
     # Use the helper function to find files
     while IFS= read -r geno_file; do
         GENO_FILES+=("$geno_file")
-    done < <(find_genotype_file "$$GENOTYPE_DIR" "$$chr" "$$GENO_EXT" "$$CHR_PREFIX" "$$CHR_PADDING" "$$CHUNK_PATTERN")
+    done < <(find_genotype_file "$GENOTYPE_DIR" "$chr" "$GENO_EXT" "$CHR_PREFIX" "$CHR_PADDING" "$CHUNK_PATTERN")
     
     if [ ${#GENO_FILES[@]} -eq 0 ]; then
         echo "  ✗ No genotype files found for chromosome $chr"
-        echo "    Tried patterns with chr format: $${CHR_PREFIX}$${CHR_FORMATTED}"
+        echo "    Tried patterns with chr format: ${CHR_PREFIX}${CHR_FORMATTED}"
         echo ""
         continue
     fi
@@ -610,17 +610,17 @@ for chr in "${CHR_ARRAY[@]}"; do
     echo ""
     
     # Build chromosome-specific SAIGE parameters
-    SAIGE_CHR_PARAMS=$$(build_saige_params "$$chr")
+    SAIGE_CHR_PARAMS=$(build_saige_params "$chr")
     
     # Process each genotype file
     for geno_file in "${GENO_FILES[@]}"; do
         
         TOTAL_JOBS=$((TOTAL_JOBS + 1))
         
-        GENO_BASE=$$(basename "$$geno_file" .${GENO_EXT})
+        GENO_BASE=$(basename "$geno_file" .${GENO_EXT})
         
         # Determine chunk number if applicable
-        if [[ "$$GENO_BASE" =~ $${CHUNK_PATTERN}([0-9]+) ]]; then
+        if [[ "$GENO_BASE" =~ ${CHUNK_PATTERN}([0-9]+) ]]; then
             CHUNK_NUM="${BASH_REMATCH[1]}"
             CHUNK_LABEL="chunk${CHUNK_NUM}"
         else
@@ -628,12 +628,12 @@ for chr in "${CHR_ARRAY[@]}"; do
             CHUNK_LABEL="all"
         fi
         
-        OUTPUT_FILE="$$OUTPUT_DIR/chr$${chr}_${CHUNK_LABEL}_results.txt"
+        OUTPUT_FILE="$OUTPUT_DIR/chr${chr}_${CHUNK_LABEL}_results.txt"
         
         echo "  ========================================"
-        echo "  Job $$TOTAL_JOBS: Chr$$chr $CHUNK_LABEL"
+        echo "  Job $TOTAL_JOBS: Chr$chr $CHUNK_LABEL"
         echo "  Genotype: $GENO_BASE"
-        echo "  Output: $$(basename $$OUTPUT_FILE)"
+        echo "  Output: $(basename $OUTPUT_FILE)"
         echo ""
         
         # Build SAIGE command
@@ -642,54 +642,54 @@ for chr in "${CHR_ARRAY[@]}"; do
         # Add genotype file(s)
         case "$INPUT_FORMAT" in
             bgen)
-                GENO_PREFIX="$${geno_file%.$${GENO_EXT}}"
-                SAIGE_CMD="$$SAIGE_CMD $$SAIGE_FLAG=$geno_file"
+                GENO_PREFIX="${geno_file%.${GENO_EXT}}"
+                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
                 
                 # Sample file
-                if [ -f "$${GENO_PREFIX}.$${SAMPLE_EXT}" ]; then
-                    SAIGE_CMD="$$SAIGE_CMD $$SAMPLE_FLAG=$${GENO_PREFIX}.$${SAMPLE_EXT}"
-                elif [ -f "$${GENOTYPE_DIR}/$${CHR_PREFIX}$${CHR_FORMATTED}.$${SAMPLE_EXT}" ]; then
-                    SAIGE_CMD="$$SAIGE_CMD $$SAMPLE_FLAG=$${GENOTYPE_DIR}/$${CHR_PREFIX}$${CHR_FORMATTED}.$${SAMPLE_EXT}"
+                if [ -f "${GENO_PREFIX}.${SAMPLE_EXT}" ]; then
+                    SAIGE_CMD="$SAIGE_CMD $SAMPLE_FLAG=${GENO_PREFIX}.${SAMPLE_EXT}"
+                elif [ -f "${GENOTYPE_DIR}/${CHR_PREFIX}${CHR_FORMATTED}.${SAMPLE_EXT}" ]; then
+                    SAIGE_CMD="$SAIGE_CMD $SAMPLE_FLAG=${GENOTYPE_DIR}/${CHR_PREFIX}${CHR_FORMATTED}.${SAMPLE_EXT}"
                 fi
                 
                 # Index file
-                if [ -f "$${geno_file}.$${INDEX_EXT}" ]; then
-                    SAIGE_CMD="$$SAIGE_CMD $$INDEX_FLAG=$${geno_file}.$${INDEX_EXT}"
+                if [ -f "${geno_file}.${INDEX_EXT}" ]; then
+                    SAIGE_CMD="$SAIGE_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
                 fi
                 ;;
             
             bfile)
-                GENO_PREFIX="$${geno_file%.$${GENO_EXT}}"
-                SAIGE_CMD="$$SAIGE_CMD $$SAIGE_FLAG=$geno_file"
-                SAIGE_CMD="$$SAIGE_CMD $$BIM_FLAG=${GENO_PREFIX}.bim"
-                SAIGE_CMD="$$SAIGE_CMD $$FAM_FLAG=${GENO_PREFIX}.fam"
+                GENO_PREFIX="${geno_file%.${GENO_EXT}}"
+                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_CMD="$SAIGE_CMD $BIM_FLAG=${GENO_PREFIX}.bim"
+                SAIGE_CMD="$SAIGE_CMD $FAM_FLAG=${GENO_PREFIX}.fam"
                 ;;
             
             pgen)
-                GENO_PREFIX="$${geno_file%.$${GENO_EXT}}"
-                SAIGE_CMD="$$SAIGE_CMD $$SAIGE_FLAG=$geno_file"
-                SAIGE_CMD="$$SAIGE_CMD $$PVAR_FLAG=$${GENO_PREFIX}.$${PVAR_EXT}"
-                SAIGE_CMD="$$SAIGE_CMD $$PSAM_FLAG=$${GENO_PREFIX}.$${PSAM_EXT}"
+                GENO_PREFIX="${geno_file%.${GENO_EXT}}"
+                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_CMD="$SAIGE_CMD $PVAR_FLAG=${GENO_PREFIX}.${PVAR_EXT}"
+                SAIGE_CMD="$SAIGE_CMD $PSAM_FLAG=${GENO_PREFIX}.${PSAM_EXT}"
                 ;;
             
             vcf)
-                SAIGE_CMD="$$SAIGE_CMD $$SAIGE_FLAG=$geno_file"
+                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
                 
                 # Index file
-                if [ -f "$${geno_file}.$${INDEX_EXT}" ]; then
-                    SAIGE_CMD="$$SAIGE_CMD $$INDEX_FLAG=$${geno_file}.$${INDEX_EXT}"
+                if [ -f "${geno_file}.${INDEX_EXT}" ]; then
+                    SAIGE_CMD="$SAIGE_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
                 fi
                 ;;
         esac
         
         # Add required parameters
-        SAIGE_CMD="$$SAIGE_CMD --GMMATmodelFile=$$GMMAT_MODEL"
-        SAIGE_CMD="$$SAIGE_CMD --varianceRatioFile=$$VARIANCE_RATIO"
-        SAIGE_CMD="$$SAIGE_CMD --groupFile=$$CHR_GROUP_FILE"
-        SAIGE_CMD="$$SAIGE_CMD --SAIGEOutputFile=$$OUTPUT_FILE"
+        SAIGE_CMD="$SAIGE_CMD --GMMATmodelFile=$GMMAT_MODEL"
+        SAIGE_CMD="$SAIGE_CMD --varianceRatioFile=$VARIANCE_RATIO"
+        SAIGE_CMD="$SAIGE_CMD --groupFile=$CHR_GROUP_FILE"
+        SAIGE_CMD="$SAIGE_CMD --SAIGEOutputFile=$OUTPUT_FILE"
         
         # Add chromosome-specific and optional parameters
-        SAIGE_CMD="$$SAIGE_CMD $$SAIGE_CHR_PARAMS"
+        SAIGE_CMD="$SAIGE_CMD $SAIGE_CHR_PARAMS"
         
         # Display command
         echo "  Command:"
@@ -701,11 +701,11 @@ for chr in "${CHR_ARRAY[@]}"; do
         if eval "$SAIGE_CMD"; then
             echo "  ✓ Job completed successfully"
             SUCCESSFUL_JOBS=$((SUCCESSFUL_JOBS + 1))
-            printf "%-5s %-10s %-45s %-40s %-10s\n" "$$chr" "$$CHUNK_LABEL" "$$GENO_BASE" "$$(basename $$OUTPUT_FILE)" "SUCCESS" >> "$$SUMMARY_FILE"
+            printf "%-5s %-10s %-45s %-40s %-10s\n" "$chr" "$CHUNK_LABEL" "$GENO_BASE" "$(basename $OUTPUT_FILE)" "SUCCESS" >> "$SUMMARY_FILE"
         else
             echo "  ✗ Job failed"
             FAILED_JOBS=$((FAILED_JOBS + 1))
-            printf "%-5s %-10s %-45s %-40s %-10s\n" "$$chr" "$$CHUNK_LABEL" "$$GENO_BASE" "$$(basename $$OUTPUT_FILE)" "FAILED" >> "$$SUMMARY_FILE"
+            printf "%-5s %-10s %-45s %-40s %-10s\n" "$chr" "$CHUNK_LABEL" "$GENO_BASE" "$(basename $OUTPUT_FILE)" "FAILED" >> "$SUMMARY_FILE"
         fi
         
         echo ""
@@ -731,9 +731,9 @@ if [ "$MERGE_CHUNKS" = "yes" ]; then
     
     for chr in "${CHR_ARRAY[@]}"; do
         # Only merge if this chromosome had chunks
-        if [ "$${CHR_HAS_CHUNKS[$$chr]:-0}" -eq 1 ]; then
+        if [ "${CHR_HAS_CHUNKS[$chr]:-0}" -eq 1 ]; then
             echo "Chromosome $chr:"
-            if merge_chunk_results "$$chr" "$$OUTPUT_DIR" "$KEEP_CHUNK_FILES"; then
+            if merge_chunk_results "$chr" "$OUTPUT_DIR" "$KEEP_CHUNK_FILES"; then
                 MERGED_COUNT=$((MERGED_COUNT + 1))
             else
                 MERGE_FAILED=$((MERGE_FAILED + 1))
