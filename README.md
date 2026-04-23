@@ -770,35 +770,35 @@ is_output_markerList_in_groupTest=TRUE
 ./step8_run_saige_gene_tests.sh saige_config.txt
 ```
 
-## Key Configuration Parameters
+**Key Configuration Parameters**
 
-### Required Parameters
+**Required Parameters**
 - `GENOTYPE_DIR` - Directory with extracted genotype files
 - `OUTPUT_DIR` - Output directory for results
 - `GMMAT_MODEL` - Null model from SAIGE Step 1
 - `VARIANCE_RATIO` - Variance ratio from SAIGE Step 1
 - `GROUP_FILE` or `GROUP_FILE_BY_CHR` - Gene group definitions
 
-### Module Configuration (choose one)
+**Module Configuration (choose one)**
 - `USE_MODULE=yes` + `MODULE_NAME=SAIGE` + `SAIGE_CMD=saige` (for HPC with modules)
 - `USE_MODULE=no` + `SAIGE_CMD=Rscript` (direct Rscript usage)
 - `USE_MODULE=no` + `SAIGE_CMD=/path/to/saige` (custom installation)
 
-### Format Parameters
+**Format Parameters**
 - `INPUT_FORMAT` - bgen, bfile, pgen, or vcf
 - `CHR_PREFIX` - Prefix in file names (chr, wgs_chr, etc.)
 - `CHR_PADDING` - auto/yes/no for chr01 vs chr1
 - `CHUNKED_INPUT` - yes/no for chunked genotype files
 - `CHUNK_PATTERN` - Pattern to identify chunks (default: chunk)
 
-### Processing Parameters
+**Processing Parameters**
 - `THREADS` - Number of CPU threads
 - `CHROMOSOMES` - Comma-separated list (MUST BE QUOTED)
 - `MERGE_CHUNKS` - Combine chunk results (yes/no)
 - `KEEP_CHUNK_FILES` - Keep chunks after merge (yes/no)
 - `ALLELE_ORDER` - alt-first or ref-first
 
-### SAIGE Parameters
+**SAIGE Parameters**
 - `LOCO` - Leave-one-chromosome-out (TRUE/FALSE)
 - `minMAF` - Minimum minor allele frequency
 - `minMAC` - Minimum minor allele count
@@ -811,14 +811,14 @@ is_output_markerList_in_groupTest=TRUE
 - `is_output_markerList_in_groupTest` - Output marker lists (TRUE/FALSE)
 - `maxMissing` - Maximum missing rate
 
-### Imputed Data Parameters (optional)
+**Imputed Data Parameters (optional)**
 - `is_imputed_data` - TRUE/FALSE
 - `minInfo` - Minimum imputation INFO score
 - `dosage_zerod_cutoff` - Dosage cutoff for zero
 - `dosage_zerod_MAC_cutoff` - MAC cutoff for dosage zero
 - `impute_method` - minor/mean/best_guess
 
-## Important Notes
+**Important Notes**
 1. Use `r_corr` (underscore) not `r.corr` in config file
 2. Use colons `:` not semicolons `;` in `annotation_in_groupTest`
 3. Quote comma-separated values: `CHROMOSOMES="1,2,3"`
@@ -828,9 +828,9 @@ is_output_markerList_in_groupTest=TRUE
 7. Merging order: chunk1, chunk2, ..., chunk10, chunk11 (numerical order)
 8. Header only from chunk1, removed from all other chunks when merging
 
-## Output Files
+**Output Files**
 
-### With Chunk Merging (MERGE_CHUNKS=yes)
+**With Chunk Merging (MERGE_CHUNKS=yes)**
 
 chr1_combined_results.txt    - All results for chr1 (header from chunk1 only)
 chr2_combined_results.txt    - All results for chr2 (header from chunk1 only)
@@ -840,7 +840,7 @@ chr22_combined_results.txt   - All results for chr22 (header from chunk1 only)
 saige_run_summary.txt         - Job summary with status
 saige_run.log                 - Detailed execution log
 
-### Without Chunk Merging (MERGE_CHUNKS=no)
+**Without Chunk Merging (MERGE_CHUNKS=no)**
 chr1_chunk1_results.txt       - Results for chr1 chunk1
 chr1_chunk2_results.txt       - Results for chr1 chunk2
 chr1_chunk3_results.txt       - Results for chr1 chunk3
@@ -854,7 +854,7 @@ chr22_chunk2_results.txt      - Results for chr22 chunk2
 saige_run_summary.txt         - Job summary
 saige_run.log                 - Detailed log
 
-### Result File Columns
+**Result File Columns**
 
 - `Gene` - Gene identifier
 - `Region` - Genomic region
@@ -869,7 +869,7 @@ saige_run.log                 - Detailed log
 - `N_CASES` - Number of cases with variant
 - `N_CONTROLS` - Number of controls with variant
 
-### Log File Contents (saige_run.log)
+**Log File Contents (saige_run.log)**
 
 - Configuration summary
 - SAIGE command for each job
@@ -878,7 +878,7 @@ saige_run.log                 - Detailed log
 - Error messages (if any)
 - Timing information
 
-### Summary File Contents (saige_run_summary.txt)
+**Summary File Contents (saige_run_summary.txt)**
 
 - Header with date/time
 - Table format: Chr | Chunk | Genotype_File | Output_File | Status
