@@ -112,7 +112,10 @@ maxMAF_in_groupTest="${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
 read -p "Annotation categories [lof,missense;lof;missense;synonymous]: " annotation_in_groupTest
 annotation_in_groupTest="${annotation_in_groupTest:-lof,missense;lof;missense;synonymous}"
 
-read -p "Test type - r.corr (0=SKAT-O, 1=Burden) [0]: " r_corr
+echo ""
+echo "NOTE: For test type, enter 0 for SKAT-O or 1 for Burden test"
+echo "      (internally stored as r_corr, converted to --r.corr for SAIGE)"
+read -p "Test type - r_corr (0=SKAT-O, 1=Burden) [0]: " r_corr
 r_corr="${r_corr:-0}"
 
 read -p "Use Firth correction? (TRUE/FALSE) [TRUE]: " is_Firth_beta
@@ -280,6 +283,9 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 # markers_per_chunk=10000
 # groups_per_chunk=100
 
+# NOTE: r_corr is used in config (underscore) and converted to --r.corr for SAIGE
+#       This is because bash variable names cannot contain dots
+
 EOF
 
 echo "✓ Configuration file created: $CONFIG_FILE"
@@ -290,6 +296,7 @@ echo "=== Validating Configuration ==="
 echo ""
 
 ERRORS=0
+WARNINGS=0
 
 # Check required paths
 if [ ! -d "$GENOTYPE_DIR" ]; then
@@ -325,6 +332,12 @@ if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
     ERRORS=$((ERRORS + 1))
 fi
 
+# Validate r_corr
+if [[ ! "$r_corr" =~ ^[01]$ ]]; then
+    echo "⚠ WARNING: r_corr should be 0 (SKAT-O) or 1 (Burden), got: $r_corr"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
 # Check for chunked files if specified
 if [ "$CHUNKED_INPUT" = "yes" ] && [ -d "$GENOTYPE_DIR" ]; then
     CHUNK_COUNT=$(ls "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes_${CHUNK_PATTERN}* 2>/dev/null | wc -l)
@@ -336,8 +349,17 @@ if [ "$CHUNKED_INPUT" = "yes" ] && [ -d "$GENOTYPE_DIR" ]; then
     fi
 fi
 
-if [ $ERRORS -eq 0 ]; then
+if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
     echo "✓ Basic validation passed"
+    echo ""
+    echo "To run full validation:"
+    echo "  ./validate_saige_config.sh $CONFIG_FILE"
+    echo ""
+    echo "To run SAIGE analysis:"
+    echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
+elif [ $ERRORS -eq 0 ]; then
+    echo ""
+    echo "✓ Validation passed with $WARNINGS warning(s)"
     echo ""
     echo "To run full validation:"
     echo "  ./validate_saige_config.sh $CONFIG_FILE"
@@ -346,7 +368,7 @@ if [ $ERRORS -eq 0 ]; then
     echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
 else
     echo ""
-    echo "⚠ Found $ERRORS warnings"
+    echo "⚠ Found $ERRORS error(s) and $WARNINGS warning(s)"
     echo "  Please check paths before running analysis"
     echo ""
     echo "To validate configuration:"
