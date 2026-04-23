@@ -339,32 +339,6 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 # markers_per_chunk=10000
 # groups_per_chunk=100
 
-# IMPORTANT NOTES:
-# - r_corr is used in config (underscore) and converted to --r.corr for SAIGE
-#   (bash variable names cannot contain dots)
-# - annotation_in_groupTest uses colons (:) to separate different annotation masks
-#   Example: "lof,missense:lof:missense:synonymous" creates 4 masks:
-#     1. lof,missense (combined)
-#     2. lof (only)
-#     3. missense (only)
-#     4. synonymous (only)
-# - Values with special characters (colons, semicolons, commas) MUST be quoted
-# - CHROMOSOMES parameter MUST be quoted when containing commas
-
-# MODULE CONFIGURATION EXAMPLES:
-# Example 1: Use module system
-#   USE_MODULE=yes
-#   MODULE_NAME=SAIGE
-#   SAIGE_CMD=saige
-#
-# Example 2: Use Rscript directly (no module)
-#   USE_MODULE=no
-#   SAIGE_CMD=Rscript
-#
-# Example 3: Custom SAIGE installation
-#   USE_MODULE=no
-#   SAIGE_CMD=/path/to/saige/bin/saige
-
 EOF
 
 echo "✓ Configuration file created: $CONFIG_FILE"
