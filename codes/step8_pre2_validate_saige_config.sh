@@ -458,25 +458,58 @@ if [ -d "$GENOTYPE_DIR" ]; then
                 echo "    - $(basename "$file")"
             done
             
-            # Count chunks per chromosome
+            # Count chunks per chromosome - FIXED ORDERING
             echo ""
             echo "  Chunks per chromosome:"
+            
+            # Parse CHROMOSOMES into array, maintaining order
             IFS=',' read -ra CHR_ARRAY <<< "$CHROMOSOMES"
-            for chr in "${CHR_ARRAY[@]}"; do
-                chr=$(echo "$chr" | tr -d ' ')  # Remove spaces
-                
-                if [ "$CHR_PADDING" = "yes" ] || ([ "$CHR_PADDING" = "auto" ] && [[ "$chr" =~ ^[0-9]$ ]]); then
+            
+            # Sort the array numerically to ensure proper order (1,2,3...10,11...22)
+            # Use sort with version sort to handle numbers properly
+            SORTED_CHRS=$(printf '%s\n' "${CHR_ARRAY[@]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -V)
+            
+            while IFS= read -r chr; do
+                # Determine chromosome number format
+                if [ "$CHR_PADDING" = "yes" ] || ([ "$CHR_PADDING" = "auto" ] && [ ${#chr} -eq 1 ] && [[ "$chr" =~ ^[0-9]$ ]]); then
                     CHR_NUM=$(printf "%02d" "$chr" 2>/dev/null || echo "$chr")
                 else
                     CHR_NUM="$chr"
                 fi
                 
+                # Count chunks for this chromosome
                 CHUNK_COUNT=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}${CHR_NUM}_genes_${CHUNK_PATTERN}*.${FILE_EXT} 2>/dev/null | wc -l)
                 
                 if [ "$CHUNK_COUNT" -gt 0 ]; then
-                    echo "    Chr${chr}: $CHUNK_COUNT chunks"
+                    printf "    Chr%-3s: %3d chunks\n" "$chr" "$CHUNK_COUNT"
                 fi
-            done
+            done <<< "$SORTED_CHRS"
+            
+            # Also check for any chromosomes not in the list
+            echo ""
+            echo "  Checking for additional chromosomes not in CHROMOSOMES list..."
+            ALL_CHRS=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*.${FILE_EXT} 2>/dev/null | \
+                       sed -n "s/.*${CHR_PREFIX}\([^_]*\)_genes_${CHUNK_PATTERN}.*/\1/p" | \
+                       sort -u | sort -V)
+            
+            EXTRA_CHRS=""
+            while IFS= read -r found_chr; do
+                # Check if this chr is in CHROMOSOMES
+                if ! echo "$CHROMOSOMES" | grep -qw "$found_chr"; then
+                    # Also check without leading zero
+                    found_chr_no_zero=$(echo "$found_chr" | sed 's/^0*//')
+                    if ! echo "$CHROMOSOMES" | grep -qw "$found_chr_no_zero"; then
+                        EXTRA_CHRS="$EXTRA_CHRS $found_chr"
+                    fi
+                fi
+            done <<< "$ALL_CHRS"
+            
+            if [ -n "$EXTRA_CHRS" ]; then
+                echo "    ℹ INFO: Found files for chromosomes not in CHROMOSOMES list:$EXTRA_CHRS"
+                echo "      These will be skipped during analysis"
+            else
+                echo "    ✓ All found chromosomes are in CHROMOSOMES list"
+            fi
         fi
     else
         # Check for non-chunked files
@@ -500,6 +533,29 @@ if [ -d "$GENOTYPE_DIR" ]; then
             ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes.${FILE_EXT} 2>/dev/null | head -5 | while read file; do
                 echo "    - $(basename "$file")"
             done
+            
+            # List all chromosomes found - FIXED ORDERING
+            echo ""
+            echo "  Chromosomes with genotype files:"
+            ALL_CHR_FILES=$(ls -1 "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes.${FILE_EXT} 2>/dev/null | \
+                           sed -n "s/.*${CHR_PREFIX}\([^_]*\)_genes\.${FILE_EXT}/\1/p" | \
+                           sort -V)
+            
+            while IFS= read -r found_chr; do
+                # Check if in CHROMOSOMES list
+                if echo "$CHROMOSOMES" | grep -qw "$found_chr"; then
+                    STATUS="✓"
+                else
+                    # Check without leading zero
+                    found_chr_no_zero=$(echo "$found_chr" | sed 's/^0*//')
+                    if echo "$CHROMOSOMES" | grep -qw "$found_chr_no_zero"; then
+                        STATUS="✓"
+                    else
+                        STATUS="⊗ (not in CHROMOSOMES list)"
+                    fi
+                fi
+                printf "    Chr%-3s %s\n" "$found_chr" "$STATUS"
+            done <<< "$ALL_CHR_FILES"
         fi
     fi
 else
