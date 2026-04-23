@@ -23,28 +23,33 @@ Description:
 
 Configuration File Format (key=value pairs):
   # Required parameters
-  GENOTYPE_DIR=/path/to/gene_bfiles
-  OUTPUT_DIR=/path/to/saige_results
-  GMMAT_MODEL=/path/to/step1_null_model.rda
-  VARIANCE_RATIO=/path/to/step1_variance_ratio.txt
+  GENOTYPE_DIR="/path/to/gene_bfiles"
+  OUTPUT_DIR="/path/to/saige_results"
+  GMMAT_MODEL="/path/to/step1_null_model.rda"
+  VARIANCE_RATIO="/path/to/step1_variance_ratio.txt"
   
   # Group file options (choose one)
-  GROUP_FILE=/path/to/all_genes_groups.txt     # Single file for all chromosomes
-  GROUP_FILE_BY_CHR=yes                         # Use chr{N}_groups.txt files
-  GROUP_DIR=/path/to/group_files                # Directory with group files (if BY_CHR=yes)
+  GROUP_FILE="/path/to/all_genes_groups.txt"     # Single file for all chromosomes
+  GROUP_FILE_BY_CHR=yes                           # Use chr{N}_groups.txt files
+  GROUP_DIR="/path/to/group_files"                # Directory with group files (if BY_CHR=yes)
   
   # Input format
   INPUT_FORMAT=bgen          # bgen, bfile, pgen, vcf
   
+  # Optional: Module configuration
+  USE_MODULE=no              # Use environment module system (yes/no, default: no)
+  MODULE_NAME=SAIGE          # Module name to load (if USE_MODULE=yes)
+  SAIGE_CMD=saige            # Command to run SAIGE (lowercase module name or custom)
+  
   # Optional: File naming format
   CHR_PREFIX=chr             # Prefix for chromosome in filenames (default: chr)
-  CHR_PADDING=no             # Whether chromosomes are zero-padded (01, 02) or not (1, 2). Options: yes/no/auto (default: auto)
+  CHR_PADDING=auto           # Options: yes/no/auto (default: auto)
   CHUNKED_INPUT=yes          # Are genotype files chunked? (default: no)
   CHUNK_PATTERN=chunk        # Pattern to identify chunks (default: chunk)
   
   # Optional: Processing control
   THREADS=4
-  CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22  # Comma-separated
+  CHROMOSOMES="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22"  # MUST BE QUOTED
   
   # Optional: Result merging
   MERGE_CHUNKS=yes           # Merge chunk results by chromosome (default: no)
@@ -55,58 +60,60 @@ Configuration File Format (key=value pairs):
   
   # Optional: SAIGE parameters (any SAIGE step2 parameter)
   LOCO=TRUE
-  chrom=                     # Will be set automatically per chromosome
   minMAF=0.0001
   minMAC=1
-  maxMAF_in_groupTest=0.0001,0.001,0.01
-  annotation_in_groupTest=lof,missense;lof,missense;lof;synonymous
+  maxMAF_in_groupTest="0.0001,0.001,0.01"                         # MUST BE QUOTED
+  annotation_in_groupTest="lof,missense:lof:missense:synonymous"  # MUST BE QUOTED, use COLONS
   is_Firth_beta=TRUE
   pCutoffforFirth=0.01
   is_output_markerList_in_groupTest=TRUE
-  r_corr=0                   # NOTE: Use r_corr in config (undercore), will be converted to r.corr for SAIGE
+  r_corr=0                   # NOTE: Use r_corr (underscore), converts to --r.corr for SAIGE
   SPAcutoff=2
-  
-  # Add any other SAIGE step2_SPAtests.R parameters as needed
 
 Example config file (saige_config.txt):
-  GENOTYPE_DIR=gene_bfiles
-  OUTPUT_DIR=saige_results
-  GMMAT_MODEL=step1_null_model.rda
-  VARIANCE_RATIO=step1_variance_ratio.txt
+  GENOTYPE_DIR="gene_bfiles"
+  OUTPUT_DIR="saige_results"
+  GMMAT_MODEL="step1_null_model.rda"
+  VARIANCE_RATIO="step1_variance_ratio.txt"
   GROUP_FILE_BY_CHR=yes
-  GROUP_DIR=group_files
+  GROUP_DIR="group_files"
   INPUT_FORMAT=bgen
+  USE_MODULE=yes
+  MODULE_NAME=SAIGE
+  SAIGE_CMD=saige
   CHR_PREFIX=chr
   CHR_PADDING=auto
   CHUNKED_INPUT=yes
   CHUNK_PATTERN=chunk
   ALLELE_ORDER=alt-first
   THREADS=8
-  CHROMOSOMES=1,2,3,21,22
+  CHROMOSOMES="1,2,3,21,22"
   MERGE_CHUNKS=yes
   KEEP_CHUNK_FILES=no
   LOCO=TRUE
   minMAF=0.0001
+  maxMAF_in_groupTest="0.0001,0.001,0.01"
+  annotation_in_groupTest="lof,missense:lof:missense:synonymous"
   is_Firth_beta=TRUE
   pCutoffforFirth=0.01
   r_corr=0
 
+Module Configuration Examples:
+  # Example 1: Use module system
+  USE_MODULE=yes
+  MODULE_NAME=SAIGE
+  SAIGE_CMD=saige           # Command after loading module
+  
+  # Example 2: Use Rscript directly (no module)
+  USE_MODULE=no
+  SAIGE_CMD=Rscript         # Will use: Rscript step2_SPAtests.R
+  
+  # Example 3: Custom SAIGE installation
+  USE_MODULE=no
+  SAIGE_CMD=/path/to/saige/bin/saige
+
 Usage:
   ./step8_run_saige_gene_tests.sh saige_config.txt
-
-Chromosome Naming:
-  The script automatically detects chromosome naming formats:
-  - chr1, chr2, ... chr22, chrX, chrY
-  - chr01, chr02, ... chr22, chrX, chrY
-  - 1, 2, ... 22, X, Y
-  - 01, 02, ... 22, X, Y
-
-Result Merging:
-  MERGE_CHUNKS=yes : Combine chunk results into chr{N}_combined_results.txt
-  MERGE_CHUNKS=no  : Keep individual chunk result files
-  
-  KEEP_CHUNK_FILES=yes : Keep original chunk files after merging
-  KEEP_CHUNK_FILES=no  : Delete chunk files after successful merge
 
 EOF
     exit 1
@@ -330,6 +337,9 @@ CHR_PADDING="${CHR_PADDING:-auto}"
 MERGE_CHUNKS="${MERGE_CHUNKS:-no}"
 KEEP_CHUNK_FILES="${KEEP_CHUNK_FILES:-yes}"
 ALLELE_ORDER="${ALLELE_ORDER:-alt-first}"
+USE_MODULE="${USE_MODULE:-no}"
+MODULE_NAME="${MODULE_NAME:-SAIGE}"
+SAIGE_CMD="${SAIGE_CMD:-Rscript}"
 
 # Validate allele order
 if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
@@ -426,31 +436,60 @@ fi
 echo ""
 
 #==========================================
-# Load SAIGE Module
+# Load SAIGE Module and Configure Command
 #==========================================
 
-echo "Loading SAIGE module..."
-if command -v module &> /dev/null; then
-    if module avail SAIGE 2>&1 | grep -q SAIGE; then
-        module load SAIGE
-        echo "  ✓ SAIGE module loaded"
-    elif module avail saige 2>&1 | grep -q saige; then
-        module load saige
-        echo "  ✓ saige module loaded"
-    else
-        echo "  ⚠ No SAIGE module found, using system SAIGE"
+echo "Configuring SAIGE environment..."
+
+if [ "$USE_MODULE" = "yes" ]; then
+    echo "  Using module system"
+    
+    # Check if module command exists
+    if ! command -v module &> /dev/null; then
+        echo "  ERROR: Module system not available but USE_MODULE=yes" >&2
+        exit 1
     fi
+    
+    # Load the module
+    echo "  Loading module: $MODULE_NAME"
+    if module load "$MODULE_NAME" 2>&1 | grep -qi "error"; then
+        echo "  ERROR: Failed to load module $MODULE_NAME" >&2
+        exit 1
+    fi
+    
+    echo "  ✓ Module $MODULE_NAME loaded successfully"
+    
+    # Set SAIGE command (use provided SAIGE_CMD)
+    STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
+    echo "  SAIGE command: $STEP2_CMD"
+    
 else
-    echo "  ⚠ Module system not available, using system SAIGE"
+    echo "  Using direct command (no module)"
+    
+    # Use SAIGE_CMD as-is (could be Rscript, saige, or full path)
+    if [ "$SAIGE_CMD" = "Rscript" ] || [[ "$SAIGE_CMD" == */Rscript ]]; then
+        STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
+    else
+        # Assume SAIGE_CMD already includes the full command
+        STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
+    fi
+    
+    echo "  SAIGE command: $STEP2_CMD"
 fi
 
-# Check for SAIGE step2 script
-if ! command -v step2_SPAtests.R &> /dev/null; then
-    echo "ERROR: step2_SPAtests.R not found in PATH" >&2
-    echo "Please load SAIGE module or add to PATH" >&2
+# Verify SAIGE is available
+echo "  Verifying SAIGE availability..."
+
+# Extract base command (first word)
+BASE_CMD=$(echo "$STEP2_CMD" | awk '{print $1}')
+
+if ! command -v "$BASE_CMD" &> /dev/null; then
+    echo "  ERROR: Command '$BASE_CMD' not found in PATH" >&2
+    echo "  Please check your USE_MODULE and SAIGE_CMD configuration" >&2
     exit 1
 fi
 
+echo "  ✓ SAIGE command is available"
 echo ""
 
 #==========================================
@@ -534,6 +573,13 @@ echo "Merge chunks: $MERGE_CHUNKS"
 if [ "$MERGE_CHUNKS" = "yes" ]; then
     echo "Keep chunk files: $KEEP_CHUNK_FILES"
 fi
+echo ""
+echo "SAIGE Configuration:"
+echo "  Use module: $USE_MODULE"
+if [ "$USE_MODULE" = "yes" ]; then
+    echo "  Module name: $MODULE_NAME"
+fi
+echo "  SAIGE command: $STEP2_CMD"
 echo ""
 echo "Additional SAIGE parameters:"
 echo "$(build_saige_params 1)" | tr ' ' '\n' | grep '^--' | sed 's/^/  /'
@@ -636,69 +682,69 @@ for chr in "${CHR_ARRAY[@]}"; do
         echo "  Output: $(basename $OUTPUT_FILE)"
         echo ""
         
-        # Build SAIGE command
-        SAIGE_CMD="step2_SPAtests.R"
+        # Build SAIGE command using configured STEP2_CMD
+        SAIGE_FULL_CMD="$STEP2_CMD"
         
         # Add genotype file(s)
         case "$INPUT_FORMAT" in
             bgen)
                 GENO_PREFIX="${geno_file%.${GENO_EXT}}"
-                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAIGE_FLAG=$geno_file"
                 
                 # Sample file
                 if [ -f "${GENO_PREFIX}.${SAMPLE_EXT}" ]; then
-                    SAIGE_CMD="$SAIGE_CMD $SAMPLE_FLAG=${GENO_PREFIX}.${SAMPLE_EXT}"
+                    SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAMPLE_FLAG=${GENO_PREFIX}.${SAMPLE_EXT}"
                 elif [ -f "${GENOTYPE_DIR}/${CHR_PREFIX}${CHR_FORMATTED}.${SAMPLE_EXT}" ]; then
-                    SAIGE_CMD="$SAIGE_CMD $SAMPLE_FLAG=${GENOTYPE_DIR}/${CHR_PREFIX}${CHR_FORMATTED}.${SAMPLE_EXT}"
+                    SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAMPLE_FLAG=${GENOTYPE_DIR}/${CHR_PREFIX}${CHR_FORMATTED}.${SAMPLE_EXT}"
                 fi
                 
                 # Index file
                 if [ -f "${geno_file}.${INDEX_EXT}" ]; then
-                    SAIGE_CMD="$SAIGE_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
+                    SAIGE_FULL_CMD="$SAIGE_FULL_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
                 fi
                 ;;
             
             bfile)
                 GENO_PREFIX="${geno_file%.${GENO_EXT}}"
-                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
-                SAIGE_CMD="$SAIGE_CMD $BIM_FLAG=${GENO_PREFIX}.bim"
-                SAIGE_CMD="$SAIGE_CMD $FAM_FLAG=${GENO_PREFIX}.fam"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $BIM_FLAG=${GENO_PREFIX}.bim"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $FAM_FLAG=${GENO_PREFIX}.fam"
                 ;;
             
             pgen)
                 GENO_PREFIX="${geno_file%.${GENO_EXT}}"
-                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
-                SAIGE_CMD="$SAIGE_CMD $PVAR_FLAG=${GENO_PREFIX}.${PVAR_EXT}"
-                SAIGE_CMD="$SAIGE_CMD $PSAM_FLAG=${GENO_PREFIX}.${PSAM_EXT}"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $PVAR_FLAG=${GENO_PREFIX}.${PVAR_EXT}"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $PSAM_FLAG=${GENO_PREFIX}.${PSAM_EXT}"
                 ;;
             
             vcf)
-                SAIGE_CMD="$SAIGE_CMD $SAIGE_FLAG=$geno_file"
+                SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAIGE_FLAG=$geno_file"
                 
                 # Index file
                 if [ -f "${geno_file}.${INDEX_EXT}" ]; then
-                    SAIGE_CMD="$SAIGE_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
+                    SAIGE_FULL_CMD="$SAIGE_FULL_CMD $INDEX_FLAG=${geno_file}.${INDEX_EXT}"
                 fi
                 ;;
         esac
         
         # Add required parameters
-        SAIGE_CMD="$SAIGE_CMD --GMMATmodelFile=$GMMAT_MODEL"
-        SAIGE_CMD="$SAIGE_CMD --varianceRatioFile=$VARIANCE_RATIO"
-        SAIGE_CMD="$SAIGE_CMD --groupFile=$CHR_GROUP_FILE"
-        SAIGE_CMD="$SAIGE_CMD --SAIGEOutputFile=$OUTPUT_FILE"
+        SAIGE_FULL_CMD="$SAIGE_FULL_CMD --GMMATmodelFile=$GMMAT_MODEL"
+        SAIGE_FULL_CMD="$SAIGE_FULL_CMD --varianceRatioFile=$VARIANCE_RATIO"
+        SAIGE_FULL_CMD="$SAIGE_FULL_CMD --groupFile=$CHR_GROUP_FILE"
+        SAIGE_FULL_CMD="$SAIGE_FULL_CMD --SAIGEOutputFile=$OUTPUT_FILE"
         
         # Add chromosome-specific and optional parameters
-        SAIGE_CMD="$SAIGE_CMD $SAIGE_CHR_PARAMS"
+        SAIGE_FULL_CMD="$SAIGE_FULL_CMD $SAIGE_CHR_PARAMS"
         
         # Display command
         echo "  Command:"
-        echo "$SAIGE_CMD" | sed 's/ --/\n    --/g' | sed 's/^/    /'
+        echo "$SAIGE_FULL_CMD" | sed 's/ --/\n    --/g' | sed 's/^/    /'
         echo ""
         
         # Execute SAIGE
         echo "  Running SAIGE..."
-        if eval "$SAIGE_CMD"; then
+        if eval "$SAIGE_FULL_CMD"; then
             echo "  ✓ Job completed successfully"
             SUCCESSFUL_JOBS=$((SUCCESSFUL_JOBS + 1))
             printf "%-5s %-10s %-45s %-40s %-10s\n" "$chr" "$CHUNK_LABEL" "$GENO_BASE" "$(basename $OUTPUT_FILE)" "SUCCESS" >> "$SUMMARY_FILE"
@@ -812,6 +858,55 @@ echo ""
 if [ $FAILED_JOBS -gt 0 ]; then
     echo "⚠ WARNING: $FAILED_JOBS job(s) failed"
     echo "Check log file for details: $LOG_FILE"
+    echo ""
+fi
+
+#==========================================
+# Post-Processing Instructions
+#==========================================
+
+if [ $SUCCESSFUL_JOBS -gt 0 ]; then
+    echo "=========================================="
+    echo "Post-Processing Options"
+    echo "=========================================="
+    echo ""
+    
+    if [ "$MERGE_CHUNKS" = "yes" ]; then
+        echo "Chunk results have been merged by chromosome."
+        echo ""
+        echo "To analyze results:"
+        echo "  cd $OUTPUT_DIR"
+        echo "  ../step9_analyze_results.sh standard"
+        echo ""
+    else
+        echo "Individual chunk files available."
+        echo ""
+        echo "To analyze results:"
+        echo "  cd $OUTPUT_DIR"
+        echo "  ../step9_analyze_results.sh standard"
+        echo ""
+    fi
+    
+    echo "Quick commands:"
+    echo ""
+    echo "# Extract significant results (p < 1e-5)"
+    if [ "$MERGE_CHUNKS" = "yes" ]; then
+        echo "  head -1 $OUTPUT_DIR/chr1_combined_results.txt > $OUTPUT_DIR/significant.txt"
+        echo "  awk 'NR>1 && $NF < 1e-5' $OUTPUT_DIR/chr*_combined_results.txt >> $OUTPUT_DIR/significant.txt"
+    else
+        echo "  head -1 $OUTPUT_DIR/chr1_all_results.txt > $OUTPUT_DIR/significant.txt"
+        echo "  awk 'NR>1 && $NF < 1e-5' $OUTPUT_DIR/chr*_results.txt >> $OUTPUT_DIR/significant.txt"
+    fi
+    echo ""
+    
+    echo "# Top 20 genes"
+    if [ "$MERGE_CHUNKS" = "yes" ]; then
+        echo "  head -1 $OUTPUT_DIR/chr1_combined_results.txt > $OUTPUT_DIR/top20.txt"
+        echo "  tail -n +2 -q $OUTPUT_DIR/chr*_combined_results.txt | sort -k$NF,$NF -g | head -20 >> $OUTPUT_DIR/top20.txt"
+    else
+        echo "  head -1 $OUTPUT_DIR/chr1_all_results.txt > $OUTPUT_DIR/top20.txt"
+        echo "  tail -n +2 -q $OUTPUT_DIR/chr*_results.txt | sort -k$NF,$NF -g | head -20 >> $OUTPUT_DIR/top20.txt"
+    fi
     echo ""
 fi
 
