@@ -231,8 +231,10 @@ find_genotype_files_sorted() {
             fi
         done
         
-        # Output non-chunked files first
-        printf '%s\n' "${non_chunked[@]}" 2>/dev/null | sort -u
+        # Output non-chunked files first (only if array is not empty)
+        if [ ${#non_chunked[@]} -gt 0 ]; then
+            printf '%s\n' "${non_chunked[@]}" | sort -u
+        fi
         
         # Output chunked files sorted numerically by chunk number
         if [ ${#chunked[@]} -gt 0 ]; then
