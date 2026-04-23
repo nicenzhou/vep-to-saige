@@ -830,7 +830,7 @@ is_output_markerList_in_groupTest=TRUE
 
 **Output Files**
 
-**With Chunk Merging (MERGE_CHUNKS=yes)**
+*With Chunk Merging (MERGE_CHUNKS=yes)*
 
 chr1_combined_results.txt    - All results for chr1 (header from chunk1 only)
 chr2_combined_results.txt    - All results for chr2 (header from chunk1 only)
@@ -840,7 +840,7 @@ chr22_combined_results.txt   - All results for chr22 (header from chunk1 only)
 saige_run_summary.txt         - Job summary with status
 saige_run.log                 - Detailed execution log
 
-**Without Chunk Merging (MERGE_CHUNKS=no)**
+*Without Chunk Merging (MERGE_CHUNKS=no)*
 chr1_chunk1_results.txt       - Results for chr1 chunk1
 chr1_chunk2_results.txt       - Results for chr1 chunk2
 chr1_chunk3_results.txt       - Results for chr1 chunk3
@@ -854,7 +854,7 @@ chr22_chunk2_results.txt      - Results for chr22 chunk2
 saige_run_summary.txt         - Job summary
 saige_run.log                 - Detailed log
 
-**Result File Columns**
+*Result File Columns*
 
 - `Gene` - Gene identifier
 - `Region` - Genomic region
@@ -869,7 +869,7 @@ saige_run.log                 - Detailed log
 - `N_CASES` - Number of cases with variant
 - `N_CONTROLS` - Number of controls with variant
 
-**Log File Contents (saige_run.log)**
+*Log File Contents (saige_run.log)*
 
 - Configuration summary
 - SAIGE command for each job
@@ -878,7 +878,7 @@ saige_run.log                 - Detailed log
 - Error messages (if any)
 - Timing information
 
-**Summary File Contents (saige_run_summary.txt)**
+*Summary File Contents (saige_run_summary.txt)*
 
 - Header with date/time
 - Table format: Chr | Chunk | Genotype_File | Output_File | Status
