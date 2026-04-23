@@ -831,7 +831,7 @@ is_output_markerList_in_groupTest=TRUE
 **Output Files**
 
 *With Chunk Merging (MERGE_CHUNKS=yes)*
-
+```
 chr1_combined_results.txt    - All results for chr1 (header from chunk1 only)
 chr2_combined_results.txt    - All results for chr2 (header from chunk1 only)
 chr3_combined_results.txt    - All results for chr3 (header from chunk1 only)
@@ -839,8 +839,10 @@ chr3_combined_results.txt    - All results for chr3 (header from chunk1 only)
 chr22_combined_results.txt   - All results for chr22 (header from chunk1 only)
 saige_run_summary.txt         - Job summary with status
 saige_run.log                 - Detailed execution log
+```
 
 *Without Chunk Merging (MERGE_CHUNKS=no)*
+```
 chr1_chunk1_results.txt       - Results for chr1 chunk1
 chr1_chunk2_results.txt       - Results for chr1 chunk2
 chr1_chunk3_results.txt       - Results for chr1 chunk3
@@ -853,6 +855,7 @@ chr22_chunk2_results.txt      - Results for chr22 chunk2
 ...
 saige_run_summary.txt         - Job summary
 saige_run.log                 - Detailed log
+```
 
 *Result File Columns*
 
@@ -1147,4 +1150,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 0.0.1 | Last updated: 2026-04-22*
+*Version 0.0.1 | Last updated: 2026-04-23*
