@@ -1,9 +1,6 @@
-I'll create a properly quoted version of the template with all the important changes in plain text (bash format):
-
-```bash
 # step8_pre0_saige_config_template_for_step8.txt
 # Complete SAIGE-GENE Step 2 Configuration File
-# Copy this file and modify for your analysis
+# Copy this file and modify it for your analysis
 
 #==========================================================================
 # REQUIRED PARAMETERS
