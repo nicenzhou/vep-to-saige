@@ -177,11 +177,20 @@ echo "  minMAC: ${minMAC:-1}"
 echo "  maxMAF_in_groupTest: ${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
 echo "  annotation_in_groupTest: ${annotation_in_groupTest:-lof,missense;lof,missense;lof;synonymous}"
 
+# Check r_corr (stored with underscore, converted to r.corr for SAIGE)
 r_corr="${r_corr:-0}"
-echo "  r_corr: $r_corr"
+echo "  r_corr: $r_corr (converted to --r.corr for SAIGE)"
 if [[ ! "$r_corr" =~ ^[01]$ ]]; then
-    echo "    ⚠ WARNING: r_corr should be 0 or 1"
+    echo "    ⚠ WARNING: r_corr should be 0 (SKAT-O) or 1 (Burden)"
     WARNINGS=$((WARNINGS + 1))
+fi
+
+# Check for old r.corr format and give helpful error
+if grep -q "^r\.corr=" "$CONFIG_FILE" 2>/dev/null; then
+    echo "    ✗ ERROR: Found 'r.corr=' in config file"
+    echo "      Please use 'r_corr=' instead (bash variables cannot contain dots)"
+    echo "      The script will automatically convert r_corr to --r.corr for SAIGE"
+    ERRORS=$((ERRORS + 1))
 fi
 
 is_Firth_beta="${is_Firth_beta:-FALSE}"
@@ -319,14 +328,21 @@ echo "Warnings: $WARNINGS"
 echo ""
 
 if [ $ERRORS -eq 0 ]; then
-    echo "✓ Configuration appears valid"
+    if [ $WARNINGS -eq 0 ]; then
+        echo "✓ Configuration is valid with no warnings"
+    else
+        echo "✓ Configuration is valid (with $WARNINGS warning(s))"
+    fi
     echo ""
     echo "Ready to run:"
     echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
     echo ""
     exit 0
 else
-    echo "✗ Configuration has errors that must be fixed"
+    echo "✗ Configuration has $ERRORS error(s) that must be fixed"
+    if [ $WARNINGS -gt 0 ]; then
+        echo "  Also has $WARNINGS warning(s)"
+    fi
     echo ""
     exit 1
 fi
