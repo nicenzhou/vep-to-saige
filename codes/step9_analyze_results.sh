@@ -28,7 +28,7 @@ if [ $# -eq 0 ]; then
 else
     # Command mode
     INTERACTIVE=false
-    OPERATIONS="1"
+    OPERATIONS="$1"
 fi
 
 #==========================================
@@ -50,7 +50,7 @@ show_menu() {
     echo "  findnom        - Extract nominal results (p < 0.05)"
     echo ""
     echo "Gene Ranking:"
-    echo "  toptop10       - Extract top 10 genes"
+    echo "  top10          - Extract top 10 genes"
     echo "  top50          - Extract top 50 genes"
     echo "  top100         - Extract top 100 genes"
     echo ""
@@ -115,18 +115,18 @@ get_pcol() {
         return 1
     fi
     
-    HEADER=$$(head -1 "$$file")
+    HEADER=$(head -1 "$file")
     
     # Try to find p-value column
-    PCOL=$$(echo "$$HEADER" | tr '\t' '\n' | grep -n -i -E '^p$$|^p\.value$$|^pvalue$$|^p_value$$|^Pvalue_Burden$' | cut -d: -f1 | head -1)
+    PCOL=$(echo "$HEADER" | tr '\t' '\n' | grep -n -i -E '^p$|^p\.value$|^pvalue$|^p_value$|^Pvalue_Burden$' | cut -d: -f1 | head -1)
     
     if [ -z "$PCOL" ]; then
         # If not found, assume last column
-        PCOL=$$(echo "$$HEADER" | tr '\t' '\n' | wc -l)
+        PCOL=$(echo "$HEADER" | tr '\t' '\n' | wc -l)
         echo "  WARNING: Could not identify p-value column, using last column ($PCOL)" >&2
     else
-        PNAME=$$(echo "$$HEADER" | cut -f"$PCOL")
-        echo "  P-value column: $$PCOL ($$PNAME)"
+        PNAME=$(echo "$HEADER" | cut -f"$PCOL")
+        echo "  P-value column: $PCOL ($PNAME)"
     fi
 }
 
@@ -146,15 +146,15 @@ op_mergechrom() {
     fi
     
     for chr in {1..22} X Y; do
-        if ls "$$OUTPUT_DIR"/chr$${chr}_chunk*_results.txt 1> /dev/null 2>&1; then
+        if ls "$OUTPUT_DIR"/chr${chr}_chunk*_results.txt 1> /dev/null 2>&1; then
             echo "  Processing chr${chr}..."
             
-            FIRST_CHUNK=$$(ls "$$OUTPUT_DIR"/chr${chr}_chunk*_results.txt | sort -V | head -1)
+            FIRST_CHUNK=$(ls "$OUTPUT_DIR"/chr${chr}_chunk*_results.txt | sort -V | head -1)
             
-            head -1 "$$FIRST_CHUNK" > "$$OUTPUT_DIR/chr${chr}_combined.txt"
-            tail -n +2 -q "$$OUTPUT_DIR"/chr$${chr}_chunk*_results.txt >> "$$OUTPUT_DIR/chr$${chr}_combined.txt"
+            head -1 "$FIRST_CHUNK" > "$OUTPUT_DIR/chr${chr}_combined.txt"
+            tail -n +2 -q "$OUTPUT_DIR"/chr${chr}_chunk*_results.txt >> "$OUTPUT_DIR/chr${chr}_combined.txt"
             
-            COUNT=$$(tail -n +2 "$$OUTPUT_DIR/chr${chr}_combined.txt" | wc -l)
+            COUNT=$(tail -n +2 "$OUTPUT_DIR/chr${chr}_combined.txt" | wc -l)
             echo "    Combined $COUNT genes"
         fi
     done
@@ -177,23 +177,23 @@ op_mergeall() {
     # Determine pattern based on current state
     if [ -f "$OUTPUT_DIR/all_results.txt" ]; then
         echo "  all_results.txt already exists"
-        TOTAL_GENES=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | wc -l)
+        TOTAL_GENES=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | wc -l)
         echo "  Total genes: $TOTAL_GENES"
         echo ""
         return
     fi
     
-    FIRST_FILE=$$(ls "$$OUTPUT_DIR"/$RESULT_PATTERN 2>/dev/null | sort -V | head -1)
+    FIRST_FILE=$(ls "$OUTPUT_DIR"/$RESULT_PATTERN 2>/dev/null | sort -V | head -1)
     
     if [ -z "$FIRST_FILE" ]; then
         echo "ERROR: No result files found" >&2
         exit 1
     fi
     
-    head -1 "$$FIRST_FILE" > "$$OUTPUT_DIR/all_results.txt"
-    tail -n +2 -q "$$OUTPUT_DIR"/$$RESULT_PATTERN >> "$OUTPUT_DIR/all_results.txt"
+    head -1 "$FIRST_FILE" > "$OUTPUT_DIR/all_results.txt"
+    tail -n +2 -q "$OUTPUT_DIR"/$RESULT_PATTERN >> "$OUTPUT_DIR/all_results.txt"
     
-    TOTAL_GENES=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | wc -l)
+    TOTAL_GENES=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | wc -l)
     echo "  Total genes tested: $TOTAL_GENES"
     echo "  ✓ Saved to: all_results.txt"
     echo ""
@@ -217,27 +217,27 @@ op_findsig() {
     get_pcol "$OUTPUT_DIR/all_results.txt"
     
     # Genome-wide significant
-    head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/genome_wide_sig.txt"
-    tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
-    GWS_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/genome_wide_sig.txt" | wc -l)
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/genome_wide_sig.txt"
+    tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
+    GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/genome_wide_sig.txt" | wc -l)
     echo "  Genome-wide (p < 5e-8):  $GWS_COUNT genes"
     
     # Suggestive
-    head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/suggestive_sig.txt"
-    tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
-    SUG_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/suggestive_sig.txt" | wc -l)
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/suggestive_sig.txt"
+    tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
+    SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/suggestive_sig.txt" | wc -l)
     echo "  Suggestive (p < 1e-5):   $SUG_COUNT genes"
     
     # Nominal
-    head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/nominal_sig.txt"
-    tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
-    NOM_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/nominal_sig.txt" | wc -l)
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/nominal_sig.txt"
+    tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
+    NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/nominal_sig.txt" | wc -l)
     echo "  Nominal (p < 0.05):      $NOM_COUNT genes"
     
     # P < 0.01
-    head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/sig_p001.txt"
-    tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 0.01' >> "$OUTPUT_DIR/sig_p001.txt"
-    P001_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/sig_p001.txt" | wc -l)
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/sig_p001.txt"
+    tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001.txt"
+    P001_COUNT=$(tail -n +2 "$OUTPUT_DIR/sig_p001.txt" | wc -l)
     echo "  P < 0.01:                $P001_COUNT genes"
     
     echo "  ✓ Significance filtering complete"
@@ -250,7 +250,7 @@ op_findsig() {
 
 op_topgenes() {
     local n=$1
-    local outfile="$$OUTPUT_DIR/top$${n}_genes.txt"
+    local outfile="$OUTPUT_DIR/top${n}_genes.txt"
     
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Extracting top $n genes..."
@@ -264,11 +264,11 @@ op_topgenes() {
     
     get_pcol "$OUTPUT_DIR/all_results.txt"
     
-    head -1 "$$OUTPUT_DIR/all_results.txt" > "$$outfile"
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$outfile"
     tail -n +2 "$OUTPUT_DIR/all_results.txt" | \
-        awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA"' | \
-        sort -t$$'\t' -k"$$PCOL","$PCOL"g | \
-        head -$$n >> "$$outfile"
+        awk -v pcol="$PCOL" -F'\t' '$pcol != "NA"' | \
+        sort -t$'\t' -k"$PCOL","$PCOL"g | \
+        head -$n >> "$outfile"
     
     echo "  ✓ Saved to: top${n}_genes.txt"
     
@@ -277,7 +277,7 @@ op_topgenes() {
         echo ""
         echo "  Top 20 genes:"
         if command -v column &> /dev/null; then
-            head -21 "$$outfile" | column -t -s$$'\t' | head -21
+            head -21 "$outfile" | column -t -s$'\t' | head -21
         else
             head -21 "$outfile"
         fi
@@ -302,25 +302,25 @@ op_chromsum() {
         
         for chr in {1..22} X Y; do
             CHR_FILE=""
-            if [ -f "$$OUTPUT_DIR/chr$${chr}_combined_results.txt" ]; then
-                CHR_FILE="$$OUTPUT_DIR/chr$${chr}_combined_results.txt"
-            elif [ -f "$$OUTPUT_DIR/chr$${chr}_combined.txt" ]; then
-                CHR_FILE="$$OUTPUT_DIR/chr$${chr}_combined.txt"
-            elif [ -f "$$OUTPUT_DIR/chr$${chr}_all_results.txt" ]; then
-                CHR_FILE="$$OUTPUT_DIR/chr$${chr}_all_results.txt"
+            if [ -f "$OUTPUT_DIR/chr${chr}_combined_results.txt" ]; then
+                CHR_FILE="$OUTPUT_DIR/chr${chr}_combined_results.txt"
+            elif [ -f "$OUTPUT_DIR/chr${chr}_combined.txt" ]; then
+                CHR_FILE="$OUTPUT_DIR/chr${chr}_combined.txt"
+            elif [ -f "$OUTPUT_DIR/chr${chr}_all_results.txt" ]; then
+                CHR_FILE="$OUTPUT_DIR/chr${chr}_all_results.txt"
             fi
             
-            if [ -n "$$CHR_FILE" ] && [ -f "$$CHR_FILE" ]; then
-                get_pcol "$CHR_FILE" > /dev/null
+            if [ -n "$CHR_FILE" ] && [ -f "$CHR_FILE" ]; then
+                get_pcol "$CHR_FILE" > /dev/null 2>&1
                 
-                TOTAL=$$(tail -n +2 "$$CHR_FILE" | wc -l)
-                GWS=$$(tail -n +2 "$$CHR_FILE" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 5e-8' | wc -l)
-                SUG=$$(tail -n +2 "$$CHR_FILE" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 1e-5' | wc -l)
-                NOM=$$(tail -n +2 "$$CHR_FILE" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 0.05' | wc -l)
-                P001=$$(tail -n +2 "$$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 0.01' | wc -l)
+                TOTAL=$(tail -n +2 "$CHR_FILE" | wc -l)
+                GWS=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 5e-8' | wc -l)
+                SUG=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 1e-5' | wc -l)
+                NOM=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.05' | wc -l)
+                P001=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.01' | wc -l)
                 
                 printf "%-5s %-12s %-12s %-12s %-12s %-12s\n" \
-                    "$$chr" "$$TOTAL" "$$GWS" "$$SUG" "$$NOM" "$$P001"
+                    "$chr" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
             fi
         done
     } > "$OUTPUT_DIR/chromosome_summary.txt"
@@ -348,13 +348,13 @@ op_fullsum() {
     
     get_pcol "$OUTPUT_DIR/all_results.txt"
     
-    TOTAL_GENES=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | wc -l)
+    TOTAL_GENES=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | wc -l)
     
     # Count significant results
-    GWS_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 5e-8' | wc -l)
-    SUG_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 1e-5' | wc -l)
-    NOM_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 0.05' | wc -l)
-    P001_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $pcol < 0.01' | wc -l)
+    GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 5e-8' | wc -l)
+    SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 1e-5' | wc -l)
+    NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.05' | wc -l)
+    P001_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.01' | wc -l)
     
     {
         echo "=========================================="
@@ -369,10 +369,10 @@ op_fullsum() {
         echo "----------------------------------------"
         printf "  %-25s %8s %8s\n" "Threshold" "Count" "Percent"
         echo "----------------------------------------"
-        printf "  %-25s %8s %7.2f%%\n" "Genome-wide (p < 5e-8)" "$$GWS_COUNT" "$$(awk -v g="$$GWS_COUNT" -v t="$$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
-        printf "  %-25s %8s %7.2f%%\n" "Suggestive (p < 1e-5)" "$$SUG_COUNT" "$$(awk -v g="$$SUG_COUNT" -v t="$$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
-        printf "  %-25s %8s %7.2f%%\n" "P < 0.01" "$$P001_COUNT" "$$(awk -v g="$$P001_COUNT" -v t="$$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
-        printf "  %-25s %8s %7.2f%%\n" "Nominal (p < 0.05)" "$$NOM_COUNT" "$$(awk -v g="$$NOM_COUNT" -v t="$$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
+        printf "  %-25s %8s %7.2f%%\n" "Genome-wide (p < 5e-8)" "$GWS_COUNT" "$(awk -v g="$GWS_COUNT" -v t="$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
+        printf "  %-25s %8s %7.2f%%\n" "Suggestive (p < 1e-5)" "$SUG_COUNT" "$(awk -v g="$SUG_COUNT" -v t="$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
+        printf "  %-25s %8s %7.2f%%\n" "P < 0.01" "$P001_COUNT" "$(awk -v g="$P001_COUNT" -v t="$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
+        printf "  %-25s %8s %7.2f%%\n" "Nominal (p < 0.05)" "$NOM_COUNT" "$(awk -v g="$NOM_COUNT" -v t="$TOTAL_GENES" 'BEGIN {printf "%.2f", (g/t)*100}')"
         echo ""
         echo "Output Files Generated:"
         echo "----------------------------------------"
@@ -430,10 +430,10 @@ op_qqdata() {
     
     get_pcol "$OUTPUT_DIR/all_results.txt"
     
-    TOTAL_GENES=$$(tail -n +2 "$$OUTPUT_DIR/all_results.txt" | wc -l)
+    TOTAL_GENES=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | wc -l)
     
     tail -n +2 "$OUTPUT_DIR/all_results.txt" | \
-        awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol > 0 {print $$pcol}' | \
+        awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol > 0 {print $pcol}' | \
         sort -g | \
         awk -v total="$TOTAL_GENES" '{
             obs = -log($1)/log(10)
@@ -441,7 +441,7 @@ op_qqdata() {
             print exp "\t" obs
         }' > "$OUTPUT_DIR/qq_plot_data.txt"
     
-    POINTS=$$(wc -l < "$$OUTPUT_DIR/qq_plot_data.txt")
+    POINTS=$(wc -l < "$OUTPUT_DIR/qq_plot_data.txt")
     echo "  Generated $POINTS data points"
     echo "  ✓ Saved to: qq_plot_data.txt"
     echo "  Columns: Expected_log10P  Observed_log10P"
@@ -469,7 +469,7 @@ op_mandata() {
     
     tail -n +2 "$OUTPUT_DIR/all_results.txt" | \
         awk -v pcol="$PCOL" -F'\t' '
-        $$pcol != "NA" && $$pcol > 0 {
+        $pcol != "NA" && $pcol > 0 {
             gene = $1
             pval = $pcol
             
@@ -487,7 +487,7 @@ op_mandata() {
             print gene "\t" chr "\t" pval "\t" log10p
         }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
     
-    POINTS=$$(tail -n +2 "$$OUTPUT_DIR/manhattan_plot_data.txt" | wc -l)
+    POINTS=$(tail -n +2 "$OUTPUT_DIR/manhattan_plot_data.txt" | wc -l)
     echo "  Generated $POINTS data points"
     echo "  ✓ Saved to: manhattan_plot_data.txt"
     echo "  Columns: Gene  CHR  Pvalue  NegLog10P"
@@ -521,9 +521,9 @@ run_operation() {
                 return 1
             fi
             get_pcol "$OUTPUT_DIR/all_results.txt"
-            head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/genome_wide_sig.txt"
-            tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
-            GWS_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/genome_wide_sig.txt" | wc -l)
+            head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/genome_wide_sig.txt"
+            tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
+            GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/genome_wide_sig.txt" | wc -l)
             echo "  Genome-wide significant: $GWS_COUNT genes"
             echo "  ✓ Saved to: genome_wide_sig.txt"
             echo ""
@@ -538,9 +538,9 @@ run_operation() {
                 return 1
             fi
             get_pcol "$OUTPUT_DIR/all_results.txt"
-            head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/suggestive_sig.txt"
-            tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
-            SUG_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/suggestive_sig.txt" | wc -l)
+            head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/suggestive_sig.txt"
+            tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
+            SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/suggestive_sig.txt" | wc -l)
             echo "  Suggestive results: $SUG_COUNT genes"
             echo "  ✓ Saved to: suggestive_sig.txt"
             echo ""
@@ -555,9 +555,9 @@ run_operation() {
                 return 1
             fi
             get_pcol "$OUTPUT_DIR/all_results.txt"
-            head -1 "$$OUTPUT_DIR/all_results.txt" > "$$OUTPUT_DIR/nominal_sig.txt"
-            tail -n +2 "$$OUTPUT_DIR/all_results.txt" | awk -v pcol="$$PCOL" -F'\t' '$$pcol != "NA" && $$pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
-            NOM_COUNT=$$(tail -n +2 "$$OUTPUT_DIR/nominal_sig.txt" | wc -l)
+            head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/nominal_sig.txt"
+            tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
+            NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/nominal_sig.txt" | wc -l)
             echo "  Nominal significant: $NOM_COUNT genes"
             echo "  ✓ Saved to: nominal_sig.txt"
             echo ""
@@ -629,7 +629,9 @@ run_operation() {
 if [ "$INTERACTIVE" = true ]; then
     show_menu
     echo ""
-    read -p "Enter operations (e.g., standard or mergeall+findsig+top50): " OPERATIONS if [ -z "$OPERATIONS" ]; then
+    read -p "Enter operations (e.g., standard or mergeall+findsig+top50): " OPERATIONS
+    
+    if [ -z "$OPERATIONS" ]; then
         echo "No operations specified. Exiting."
         exit 0
     fi
@@ -721,11 +723,15 @@ echo ""
 echo "# Find specific gene:"
 echo "  grep -i 'GENE_NAME' all_results.txt"
 echo ""
-echo "# Extract genes with MAC > 100:"
-echo "  awk -F'\t' '$MAC_COLUMN > 100' all_results.txt > high_mac_results.txt"
+echo "# Extract genes with high MAC:"
+echo "  awk -F'\t' 'NR==1 || $MAC_COLUMN > 100' all_results.txt > high_mac_results.txt"
 echo ""
-echo "# Sort by beta (effect size) - adjust column number:"
+echo "# Sort by beta (effect size) - adjust column number as needed:"
 echo "  (head -1 all_results.txt; tail -n +2 all_results.txt | sort -t$'\\t' -k3,3gr) > sorted_by_beta.txt"
+echo ""
+echo "# Calculate genomic inflation factor (lambda):"
+echo "  awk -v pcol=$PCOL 'NR>1 && $pcol != \"NA\" {print $pcol}' all_results.txt | \\"
+echo "    sort -g | awk 'BEGIN{n=0} {a[n++]=$1} END{print \"Lambda =\", (0.4549364/a[int(n/2)])^2}'"
 echo ""
 
 echo "=========================================="
