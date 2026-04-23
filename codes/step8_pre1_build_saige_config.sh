@@ -109,8 +109,11 @@ minMAC="${minMAC:-1}"
 read -p "MAF cutoffs for gene tests [0.0001,0.001,0.01]: " maxMAF_in_groupTest
 maxMAF_in_groupTest="${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
 
-read -p "Annotation categories [lof,missense;lof;missense;synonymous]: " annotation_in_groupTest
-annotation_in_groupTest="${annotation_in_groupTest:-lof,missense;lof;missense;synonymous}"
+echo ""
+echo "NOTE: Annotation categories use colon (:) to separate different masks"
+echo "      Example: lof,missense:lof:missense:synonymous creates 4 masks"
+read -p "Annotation categories [lof,missense:lof:missense:synonymous]: " annotation_in_groupTest
+annotation_in_groupTest="${annotation_in_groupTest:-lof,missense:lof:missense:synonymous}"
 
 echo ""
 echo "NOTE: For test type, enter 0 for SKAT-O or 1 for Burden test"
@@ -175,10 +178,10 @@ cat > "$CONFIG_FILE" << EOF
 #==========================================================================
 
 # Input/Output Directories
-GENOTYPE_DIR=$GENOTYPE_DIR
-OUTPUT_DIR=$OUTPUT_DIR
-GMMAT_MODEL=$GMMAT_MODEL
-VARIANCE_RATIO=$VARIANCE_RATIO
+GENOTYPE_DIR="$GENOTYPE_DIR"
+OUTPUT_DIR="$OUTPUT_DIR"
+GMMAT_MODEL="$GMMAT_MODEL"
+VARIANCE_RATIO="$VARIANCE_RATIO"
 
 # Group File Configuration
 EOF
@@ -186,11 +189,11 @@ EOF
 if [ "$GROUP_BY_CHR" = "yes" ]; then
     cat >> "$CONFIG_FILE" << EOF
 GROUP_FILE_BY_CHR=yes
-GROUP_DIR=$GROUP_DIR
+GROUP_DIR="$GROUP_DIR"
 EOF
 else
     cat >> "$CONFIG_FILE" << EOF
-GROUP_FILE=$GROUP_FILE
+GROUP_FILE="$GROUP_FILE"
 GROUP_FILE_BY_CHR=no
 EOF
 fi
@@ -208,7 +211,7 @@ CHR_PADDING=$CHR_PADDING
 
 # Processing control
 THREADS=$THREADS
-CHROMOSOMES=$CHROMOSOMES
+CHROMOSOMES="$CHROMOSOMES"
 
 # Chunked file configuration
 CHUNKED_INPUT=$CHUNKED_INPUT
@@ -238,8 +241,8 @@ fi
 cat >> "$CONFIG_FILE" << EOF
 
 # Gene-based test parameters
-maxMAF_in_groupTest=$maxMAF_in_groupTest
-annotation_in_groupTest=$annotation_in_groupTest
+maxMAF_in_groupTest="$maxMAF_in_groupTest"
+annotation_in_groupTest="$annotation_in_groupTest"
 r_corr=$r_corr
 
 # Effect size estimation
@@ -276,15 +279,23 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 # Uncomment and modify as needed:
 # MACCutoff_to_CollapseUltraRare=10
 # minGroupMAC_in_BurdenTest=5
-# weights_beta=1,25
+# weights_beta="1,25"
 # SPAcutoff=2
 # is_single_in_groupTest=TRUE
 # is_no_weight_in_groupTest=FALSE
 # markers_per_chunk=10000
 # groups_per_chunk=100
 
-# NOTE: r_corr is used in config (underscore) and converted to --r.corr for SAIGE
-#       This is because bash variable names cannot contain dots
+# IMPORTANT NOTES:
+# - r_corr is used in config (underscore) and converted to --r.corr for SAIGE
+#   (bash variable names cannot contain dots)
+# - annotation_in_groupTest uses colons (:) to separate different annotation masks
+#   Example: "lof,missense:lof:missense:synonymous" creates 4 masks:
+#     1. lof,missense (combined)
+#     2. lof (only)
+#     3. missense (only)
+#     4. synonymous (only)
+# - Values with special characters (colons, semicolons, commas) are quoted
 
 EOF
 
