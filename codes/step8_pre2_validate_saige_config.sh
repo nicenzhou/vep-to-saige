@@ -2,7 +2,7 @@
 # step8_pre2_validate_saige_config.sh
 # Validates SAIGE configuration file before running analysis
 
-CONFIG_FILE="\$1"
+CONFIG_FILE="$1"
 
 if [ -z "$CONFIG_FILE" ]; then
     echo "Usage: ./step8_pre2_validate_saige_config.sh <config_file>"
@@ -30,7 +30,7 @@ echo ""
 
 # Check required parameters
 check_required() {
-    local param_name="\$1"
+    local param_name="$1"
     local param_value="${!param_name:-}"
     
     if [ -z "$param_value" ]; then
@@ -45,9 +45,9 @@ check_required() {
 
 # Check file/directory exists
 check_exists() {
-    local param_name="\$1"
+    local param_name="$1"
     local param_value="${!param_name:-}"
-    local type="\$2"  # file or directory
+    local type="$2"  # file or directory
     
     if [ -z "$param_value" ]; then
         return 1
@@ -83,7 +83,7 @@ echo ""
 
 if [ "${GROUP_FILE_BY_CHR:-no}" = "yes" ]; then
     echo "  Using per-chromosome group files"
-    GROUP_DIR="$${GROUP_DIR:-$$GENOTYPE_DIR}"
+    GROUP_DIR="${GROUP_DIR:-$GENOTYPE_DIR}"
     check_exists GROUP_DIR directory
     
     # Check if at least one chr group file exists
@@ -124,7 +124,7 @@ if [ "$USE_MODULE" = "yes" ]; then
             echo "    Checking if module '$MODULE_NAME' is available..."
             
             # Method 1: Try module avail
-            if module avail "$$MODULE_NAME" 2>&1 | grep -qi "$$MODULE_NAME"; then
+            if module avail "$MODULE_NAME" 2>&1 | grep -qi "$MODULE_NAME"; then
                 echo "    ✓ Module '$MODULE_NAME' is available"
                 
                 # Try to actually load the module in a subshell
@@ -134,8 +134,8 @@ if [ "$USE_MODULE" = "yes" ]; then
                     
                     # Test if command becomes available after loading
                     if [ -n "$SAIGE_CMD" ]; then
-                        TEST_OUTPUT=$$(module load "$$MODULE_NAME" 2>&1 && command -v "$SAIGE_CMD" 2>&1)
-                        if echo "$$TEST_OUTPUT" | grep -q "$$SAIGE_CMD"; then
+                        TEST_OUTPUT=$(module load "$MODULE_NAME" 2>&1 && command -v "$SAIGE_CMD" 2>&1)
+                        if echo "$TEST_OUTPUT" | grep -q "$SAIGE_CMD"; then
                             echo "    ✓ Command '$SAIGE_CMD' available after loading module"
                         else
                             echo "    ⚠ WARNING: Command '$SAIGE_CMD' not found after loading module"
@@ -198,8 +198,8 @@ else
     else
         # It's a command name - check if it exists in PATH
         if command -v "$SAIGE_CMD" &> /dev/null; then
-            SAIGE_PATH=$$(command -v "$$SAIGE_CMD")
-            echo "    ✓ Command '$$SAIGE_CMD' found: $$SAIGE_PATH"
+            SAIGE_PATH=$(command -v "$SAIGE_CMD")
+            echo "    ✓ Command '$SAIGE_CMD' found: $SAIGE_PATH"
             
             # For Rscript, also check R version
             if [ "$SAIGE_CMD" = "Rscript" ]; then
@@ -221,22 +221,22 @@ if [ "$ERRORS" -eq 0 ]; then
     # Determine the actual command to test
     if [ "$USE_MODULE" = "yes" ]; then
         # Will need to load module first
-        TEST_CMD="module load $$MODULE_NAME 2>&1 && $$SAIGE_CMD"
+        TEST_CMD="module load $MODULE_NAME 2>&1 && $SAIGE_CMD"
     else
         TEST_CMD="$SAIGE_CMD"
     fi
     
     # Only test if it's Rscript-based
-    if [[ "$$ACTUAL_CMD" =~ [Rr]script ]] || [ "$$ACTUAL_CMD" = "Rscript" ]; then
+    if [[ "$ACTUAL_CMD" =~ [Rr]script ]] || [ "$ACTUAL_CMD" = "Rscript" ]; then
         echo ""
         echo "  Testing SAIGE package availability..."
         
         TEST_SCRIPT='library(SAIGE); cat("SAIGE package loaded successfully\n")'
         
         if [ "$USE_MODULE" = "yes" ]; then
-            TEST_OUTPUT=$$(module load "$$MODULE_NAME" 2>&1 && echo "$$TEST_SCRIPT" | $$SAIGE_CMD --vanilla - 2>&1)
+            TEST_OUTPUT=$(module load "$MODULE_NAME" 2>&1 && echo "$TEST_SCRIPT" | $SAIGE_CMD --vanilla - 2>&1)
         else
-            TEST_OUTPUT=$$(echo "$$TEST_SCRIPT" | $SAIGE_CMD --vanilla - 2>&1)
+            TEST_OUTPUT=$(echo "$TEST_SCRIPT" | $SAIGE_CMD --vanilla - 2>&1)
         fi
         
         if echo "$TEST_OUTPUT" | grep -q "SAIGE package loaded successfully"; then
@@ -245,7 +245,7 @@ if [ "$ERRORS" -eq 0 ]; then
             echo "    ⚠ WARNING: Could not verify SAIGE R package"
             echo "      Make sure SAIGE is installed in R"
             if echo "$TEST_OUTPUT" | grep -qi "error"; then
-                echo "      Error: $$(echo "$$TEST_OUTPUT" | grep -i error | head -n1)"
+                echo "      Error: $(echo "$TEST_OUTPUT" | grep -i error | head -n1)"
             fi
             WARNINGS=$((WARNINGS + 1))
         fi
@@ -283,7 +283,7 @@ if [ "$CHUNKED_INPUT" = "yes" ]; then
     echo "  Chunk pattern: $CHUNK_PATTERN"
 fi
 
-if [[ ! "$$CHR_PADDING" =~ ^(auto|yes|no)$$ ]]; then
+if [[ ! "$CHR_PADDING" =~ ^(auto|yes|no)$ ]]; then
     echo "    ⚠ WARNING: CHR_PADDING should be 'auto', 'yes', or 'no'"
     WARNINGS=$((WARNINGS + 1))
 fi
@@ -294,7 +294,7 @@ echo ""
 
 THREADS="${THREADS:-4}"
 echo "  Threads: $THREADS"
-if ! [[ "$$THREADS" =~ ^[0-9]+$$ ]]; then
+if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
     echo "    ✗ ERROR: THREADS must be a positive integer"
     ERRORS=$((ERRORS + 1))
 fi
@@ -318,7 +318,7 @@ echo "  Keep chunk files: $KEEP_CHUNK_FILES"
 ALLELE_ORDER="${ALLELE_ORDER:-alt-first}"
 echo "  Allele order: $ALLELE_ORDER"
 
-if [[ ! "$$ALLELE_ORDER" =~ ^(alt-first|ref-first)$$ ]]; then
+if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
     echo "    ⚠ WARNING: ALLELE_ORDER should be 'alt-first' or 'ref-first'"
     WARNINGS=$((WARNINGS + 1))
 fi
@@ -329,7 +329,7 @@ echo ""
 
 LOCO="${LOCO:-FALSE}"
 echo "  LOCO: $LOCO"
-if [[ ! "$$LOCO" =~ ^(TRUE|FALSE)$$ ]]; then
+if [[ ! "$LOCO" =~ ^(TRUE|FALSE)$ ]]; then
     echo "    ⚠ WARNING: LOCO should be TRUE or FALSE"
     WARNINGS=$((WARNINGS + 1))
 fi
