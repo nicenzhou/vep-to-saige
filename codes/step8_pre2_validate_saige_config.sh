@@ -161,7 +161,7 @@ echo "  minMAC: ${minMAC:-1}"
 echo "  maxMAF_in_groupTest: ${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
 echo "  annotation_in_groupTest: ${annotation_in_groupTest:-lof,missense;lof,missense;lof;synonymous}"
 
-r_corr="${r.corr:-0}"
+r_corr="${r_corr:-0}"
 echo "  r.corr: $r_corr"
 if [[ ! "$r_corr" =~ ^[01]$ ]]; then
     echo "    ⚠ WARNING: r.corr should be 0 or 1"
