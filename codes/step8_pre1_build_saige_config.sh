@@ -60,6 +60,22 @@ THREADS="${THREADS:-8}"
 read -p "Chromosomes to process [1-22]: " CHROMOSOMES
 CHROMOSOMES="${CHROMOSOMES:-1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22}"
 
+echo ""
+echo "=== Chunked File Configuration ==="
+echo ""
+
+read -p "Are genotype files chunked? (yes/no) [no]: " CHUNKED_INPUT
+CHUNKED_INPUT="${CHUNKED_INPUT:-no}"
+
+if [ "$CHUNKED_INPUT" = "yes" ]; then
+    read -p "Chunk pattern in filename [chunk]: " CHUNK_PATTERN
+    CHUNK_PATTERN="${CHUNK_PATTERN:-chunk}"
+    echo "  Expected file naming: ${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*"
+else
+    CHUNK_PATTERN="chunk"
+fi
+
+echo ""
 read -p "Merge chunk results? (yes/no) [yes]: " MERGE_CHUNKS
 MERGE_CHUNKS="${MERGE_CHUNKS:-yes}"
 
@@ -69,6 +85,13 @@ if [ "$MERGE_CHUNKS" = "yes" ]; then
 else
     KEEP_CHUNK_FILES="yes"
 fi
+
+echo ""
+echo "=== Allele Configuration ==="
+echo ""
+
+read -p "Allele order (alt-first/ref-first) [alt-first]: " ALLELE_ORDER
+ALLELE_ORDER="${ALLELE_ORDER:-alt-first}"
 
 echo ""
 echo "=== SAIGE Parameters ==="
@@ -183,11 +206,17 @@ CHR_PADDING=$CHR_PADDING
 # Processing control
 THREADS=$THREADS
 CHROMOSOMES=$CHROMOSOMES
-CHUNK_PATTERN=chunk
+
+# Chunked file configuration
+CHUNKED_INPUT=$CHUNKED_INPUT
+CHUNK_PATTERN=$CHUNK_PATTERN
 
 # Result merging
 MERGE_CHUNKS=$MERGE_CHUNKS
 KEEP_CHUNK_FILES=$KEEP_CHUNK_FILES
+
+# Allele configuration
+ALLELE_ORDER=$ALLELE_ORDER
 
 #==========================================================================
 # SAIGE PARAMETERS
@@ -208,7 +237,7 @@ cat >> "$CONFIG_FILE" << EOF
 # Gene-based test parameters
 maxMAF_in_groupTest=$maxMAF_in_groupTest
 annotation_in_groupTest=$annotation_in_groupTest
-r.corr=$r_corr
+r_corr=$r_corr
 
 # Effect size estimation
 is_Firth_beta=$is_Firth_beta
@@ -244,7 +273,7 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 # Uncomment and modify as needed:
 # MACCutoff_to_CollapseUltraRare=10
 # minGroupMAC_in_BurdenTest=5
-# weights.beta=1,25
+# weights_beta=1,25
 # SPAcutoff=2
 # is_single_in_groupTest=TRUE
 # is_no_weight_in_groupTest=FALSE
@@ -287,6 +316,23 @@ else
     if [ ! -f "$GROUP_FILE" ]; then
         echo "⚠ WARNING: Group file not found: $GROUP_FILE"
         ERRORS=$((ERRORS + 1))
+    fi
+fi
+
+# Validate allele order
+if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
+    echo "⚠ WARNING: Invalid allele order '$ALLELE_ORDER' (should be alt-first or ref-first)"
+    ERRORS=$((ERRORS + 1))
+fi
+
+# Check for chunked files if specified
+if [ "$CHUNKED_INPUT" = "yes" ] && [ -d "$GENOTYPE_DIR" ]; then
+    CHUNK_COUNT=$(ls "$GENOTYPE_DIR"/${CHR_PREFIX}*_genes_${CHUNK_PATTERN}* 2>/dev/null | wc -l)
+    if [ $CHUNK_COUNT -eq 0 ]; then
+        echo "⚠ WARNING: No chunked files found matching pattern: ${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*"
+        ERRORS=$((ERRORS + 1))
+    else
+        echo "✓ Found $CHUNK_COUNT chunked genotype files"
     fi
 fi
 
