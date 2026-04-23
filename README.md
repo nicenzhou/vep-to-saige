@@ -645,7 +645,7 @@ Run SAIGE-GENE Step 2 association tests on extracted genotype files.
 Supports chunked files, multiple formats, and automatic result merging.
 
 **Usage:**
-```
+```bash
 ./step8_run_saige_gene_tests.sh <config_file>
 ```
 
@@ -655,13 +655,11 @@ Create a configuration file with required and optional parameters.
 
 **Option 1: Interactive Configuration Builder (Recommended)**
 
-Use the interactive wizard to create your configuration file:
-
 ```
 # Run the interactive configuration builder
 ./step8_pre1_build_saige_config.sh
 
-# Follow the prompts:
+# Follow the prompts - key parameters:
 # - Output configuration file name [saige_config.txt]: my_config.txt
 # - Genotype directory: gene_bfiles
 # - Output directory: saige_results
@@ -670,32 +668,37 @@ Use the interactive wizard to create your configuration file:
 # - Use separate group file per chromosome? (yes/no) [yes]: yes
 # - Group files directory: group_files
 # - Input format (bgen/bfile/pgen/vcf) [bgen]: bgen
+# - Use environment module system? (yes/no) [no]: yes
+# - Module name to load [SAIGE]: SAIGE
+# - SAIGE command after loading module [saige]: saige
 # - Chromosome prefix [chr]: chr
 # - Chromosome padding (auto/yes/no) [auto]: auto
 # - Number of threads [8]: 16
 # - Chromosomes to process [1-22]: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+# - Are genotype files chunked? (yes/no) [no]: yes
+# - Chunk pattern in filename [chunk]: chunk
 # - Merge chunk results? (yes/no) [yes]: yes
 # - Keep individual chunk files? (yes/no) [no]: no
+# - Allele order (alt-first/ref-first) [alt-first]: alt-first
 # - Use LOCO? (TRUE/FALSE) [TRUE]: TRUE
 # - Minimum MAF [0]: 0
 # - Minimum MAC [1]: 1
 # - MAF cutoffs for gene tests [0.0001,0.001,0.01]: 0.0001,0.001,0.01
-# - Annotation categories [lof,missense;lof;missense;synonymous]: lof,missense;lof;missense;synonymous
-# - Test type - r.corr (0=SKAT-O, 1=Burden) [0]: 0
+# - Annotation categories [lof,missense:lof:missense:synonymous]: lof,missense:lof:missense:synonymous
+# - Test type - r_corr (0=SKAT-O, 1=Burden) [0]: 0
 # - Use Firth correction? (TRUE/FALSE) [TRUE]: TRUE
 # - P-value cutoff for Firth [0.01]: 0.01
+# - SPA cutoff [2]: 2
 # - Is data imputed? (TRUE/FALSE) [FALSE]: FALSE
 # - Output marker lists? (TRUE/FALSE) [TRUE]: TRUE
 # - Maximum missing rate [0.15]: 0.15
 
-# The wizard will create and validate the configuration file
+# The wizard creates and validates the configuration file
 # Then run:
 ./step8_run_saige_gene_tests.sh my_config.txt
 ```
 
 **Option 2: Manual Configuration File**
-
-Create a configuration file manually:
 
 ```
 # Required parameters
@@ -716,515 +719,171 @@ GROUP_FILE_BY_CHR=no
 INPUT_FORMAT=bgen
 CHR_PREFIX=chr
 CHR_PADDING=auto
+CHUNKED_INPUT=yes
+CHUNK_PATTERN=chunk
 THREADS=16
-CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+CHROMOSOMES="1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22"
+
+# Module configuration (choose one method)
+# Method 1: Use module system (recommended for HPC)
+USE_MODULE=yes
+MODULE_NAME=SAIGE
+SAIGE_CMD=saige
+
+# Method 2: Use Rscript directly
+# USE_MODULE=no
+# SAIGE_CMD=Rscript
+
+# Method 3: Custom SAIGE installation
+# USE_MODULE=no
+# SAIGE_CMD=/path/to/saige/bin/saige
 
 # Result merging
 MERGE_CHUNKS=yes
 KEEP_CHUNK_FILES=no
 
-# SAIGE parameters
+# Allele configuration
+ALLELE_ORDER=alt-first
+
+# SAIGE parameters (NOTE: use r_corr not r.corr)
 LOCO=TRUE
-minMAF=0.0001
+minMAF=0
 minMAC=1
-maxMAF_in_groupTest=0.0001,0.001,0.01
-annotation_in_groupTest=lof,missense;lof,missense;lof;synonymous
+maxMAF_in_groupTest="0.0001,0.001,0.01"
+annotation_in_groupTest="lof,missense:lof,missense:lof:synonymous"
+r_corr=0
 is_Firth_beta=TRUE
 pCutoffforFirth=0.01
-r.corr=0
+SPAcutoff=2
 is_output_markerList_in_groupTest=TRUE
 ```
 
 **Examples:**
-
-```
-# 1. Interactive configuration (easiest method)
-./step8_pre1_build_saige_config.sh
-# Answer prompts, then run:
-./step8_run_saige_gene_tests.sh saige_config.txt
-
-# 2. Standard rare variant analysis (all chromosomes)
-cat > saige_config.txt << EOF
-GENOTYPE_DIR=gene_bfiles
-OUTPUT_DIR=saige_results
-GMMAT_MODEL=step1_null_model.rda
-VARIANCE_RATIO=step1_variance_ratio.txt
-GROUP_FILE_BY_CHR=yes
-GROUP_DIR=group_files
-INPUT_FORMAT=bgen
-THREADS=16
-CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-MERGE_CHUNKS=yes
-KEEP_CHUNK_FILES=no
-LOCO=TRUE
-minMAF=0
-maxMAF_in_groupTest=0.0001,0.001,0.01
-annotation_in_groupTest=lof,missense;lof;missense;synonymous
-is_Firth_beta=TRUE
-r.corr=0
-EOF
-
-./step8_run_saige_gene_tests.sh saige_config.txt
-
-# 3. Quick test on chr22 only
-cat > test_chr22.txt << EOF
-GENOTYPE_DIR=gene_bfiles
-OUTPUT_DIR=test_chr22_results
-GMMAT_MODEL=step1_null_model.rda
-VARIANCE_RATIO=step1_variance_ratio.txt
-GROUP_FILE_BY_CHR=yes
-GROUP_DIR=group_files
-INPUT_FORMAT=bgen
-THREADS=8
-CHROMOSOMES=22
-MERGE_CHUNKS=no
-LOCO=FALSE
-minMAC=5
-maxMAF_in_groupTest=0.01
-annotation_in_groupTest=lof,missense
-r.corr=0
-EOF
-
-./step8_run_saige_gene_tests.sh test_chr22.txt
-
-# 4. Burden test only (faster)
-cat > burden_config.txt << EOF
-GENOTYPE_DIR=gene_bfiles
-OUTPUT_DIR=saige_burden_results
-GMMAT_MODEL=step1_null_model.rda
-VARIANCE_RATIO=step1_variance_ratio.txt
-GROUP_FILE=all_genes_groups.txt
-GROUP_FILE_BY_CHR=no
-INPUT_FORMAT=bgen
-THREADS=12
-CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-MERGE_CHUNKS=yes
-LOCO=TRUE
-r.corr=1
-minGroupMAC_in_BurdenTest=10
-maxMAF_in_groupTest=0.01
-is_Firth_beta=TRUE
-EOF
-
-./step8_run_saige_gene_tests.sh burden_config.txt
-
-# 5. Imputed data analysis
-cat > imputed_config.txt << EOF
-GENOTYPE_DIR=gene_bfiles_imputed
-OUTPUT_DIR=saige_imputed_results
-GMMAT_MODEL=step1_null_model.rda
-VARIANCE_RATIO=step1_variance_ratio.txt
-GROUP_FILE_BY_CHR=yes
-GROUP_DIR=group_files
-INPUT_FORMAT=bgen
-THREADS=16
-CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-MERGE_CHUNKS=yes
-LOCO=TRUE
-is_imputed_data=TRUE
-minInfo=0.3
-dosage_zerod_cutoff=0.2
-dosage_zerod_MAC_cutoff=10
-impute_method=mean
-maxMAF_in_groupTest=0.0001,0.001,0.01
-is_Firth_beta=TRUE
-EOF
-
-./step8_run_saige_gene_tests.sh imputed_config.txt
-
-# 6. Custom chromosome naming (chr01, chr02, etc.)
-cat > custom_naming.txt << EOF
-GENOTYPE_DIR=wgs_genotypes
-OUTPUT_DIR=saige_wgs_results
-GMMAT_MODEL=step1_null_model.rda
-VARIANCE_RATIO=step1_variance_ratio.txt
-GROUP_FILE_BY_CHR=yes
-GROUP_DIR=wgs_groups
-INPUT_FORMAT=bgen
-CHR_PREFIX=wgs_chr
-CHR_PADDING=yes
-THREADS=16
-CHROMOSOMES=1,2,3,21,22
-MERGE_CHUNKS=yes
-LOCO=TRUE
-maxMAF_in_groupTest=0.001,0.01
-is_Firth_beta=TRUE
-EOF
-
-./step8_run_saige_gene_tests.sh custom_naming.txt
-```
-
-**Workflow:**
-
-```
-# Step 1: Create configuration (choose one method)
-
-# Method A: Interactive (recommended for beginners)
+```bash
+# Step 1: Create configuration
 ./step8_pre1_build_saige_config.sh
 
-# Method B: Manual creation
-nano my_config.txt
-
-# Step 2: Validate configuration (optional but recommended)
-./step8_pre2_validate_saige_config.sh my_config.txt
+# Step 2: Validate configuration
+./step8_pre2_validate_saige_config.sh saige_config.txt
 
 # Step 3: Run SAIGE analysis
-./step8_run_saige_gene_tests.sh my_config.txt
-
-# Step 4: Analyze results
-./saige_results/step9_analyze_results.sh
+./step8_run_saige_gene_tests.sh saige_config.txt
 ```
 
-**Key Configuration Parameters:**
+## Key Configuration Parameters
 
-Required:
-- ```GENOTYPE_DIR``` - Directory with extracted genotype files
-- ```OUTPUT_DIR``` - Output directory for results
-- ```GMMAT_MODEL``` - Null model from SAIGE Step 1
-- ```VARIANCE_RATIO``` - Variance ratio from SAIGE Step 1
-- ```GROUP_FILE``` or ```GROUP_FILE_BY_CHR``` - Gene group definitions
+### Required Parameters
+- `GENOTYPE_DIR` - Directory with extracted genotype files
+- `OUTPUT_DIR` - Output directory for results
+- `GMMAT_MODEL` - Null model from SAIGE Step 1
+- `VARIANCE_RATIO` - Variance ratio from SAIGE Step 1
+- `GROUP_FILE` or `GROUP_FILE_BY_CHR` - Gene group definitions
 
-Format:
-- ```INPUT_FORMAT``` - bgen, bfile, pgen, or vcf
-- ```CHR_PREFIX``` - Prefix in file names (chr, wgs_chr, etc.)
-- ```CHR_PADDING``` - auto/yes/no for chr01 vs chr1
+### Module Configuration (choose one)
+- `USE_MODULE=yes` + `MODULE_NAME=SAIGE` + `SAIGE_CMD=saige` (for HPC with modules)
+- `USE_MODULE=no` + `SAIGE_CMD=Rscript` (direct Rscript usage)
+- `USE_MODULE=no` + `SAIGE_CMD=/path/to/saige` (custom installation)
 
-Processing:
-- ```THREADS``` - Number of CPU threads
-- ```CHROMOSOMES``` - Comma-separated list
-- ```MERGE_CHUNKS``` - Combine chunk results (yes/no)
-- ```KEEP_CHUNK_FILES``` - Keep chunks after merge (yes/no)
+### Format Parameters
+- `INPUT_FORMAT` - bgen, bfile, pgen, or vcf
+- `CHR_PREFIX` - Prefix in file names (chr, wgs_chr, etc.)
+- `CHR_PADDING` - auto/yes/no for chr01 vs chr1
+- `CHUNKED_INPUT` - yes/no for chunked genotype files
+- `CHUNK_PATTERN` - Pattern to identify chunks (default: chunk)
 
-SAIGE:
-- ```LOCO``` - Leave-one-chromosome-out (TRUE/FALSE)
-- ```minMAF``` - Minimum minor allele frequency
-- ```minMAC``` - Minimum minor allele count
-- ```maxMAF_in_groupTest``` - MAF masks (comma-separated)
-- ```annotation_in_groupTest``` - Variant annotations
-- ```is_Firth_beta``` - Use Firth correction (TRUE/FALSE)
-- ```r.corr``` - 0 for SKAT-O, 1 for Burden only
+### Processing Parameters
+- `THREADS` - Number of CPU threads
+- `CHROMOSOMES` - Comma-separated list (MUST BE QUOTED)
+- `MERGE_CHUNKS` - Combine chunk results (yes/no)
+- `KEEP_CHUNK_FILES` - Keep chunks after merge (yes/no)
+- `ALLELE_ORDER` - alt-first or ref-first
 
-**Output Files:**
+### SAIGE Parameters
+- `LOCO` - Leave-one-chromosome-out (TRUE/FALSE)
+- `minMAF` - Minimum minor allele frequency
+- `minMAC` - Minimum minor allele count
+- `maxMAF_in_groupTest` - MAF masks (MUST BE QUOTED)
+- `annotation_in_groupTest` - Variant annotations (use COLONS, MUST BE QUOTED)
+- `is_Firth_beta` - Use Firth correction (TRUE/FALSE)
+- `r_corr` - 0 for SKAT-O, 1 for Burden (NOTE: underscore not dot)
+- `SPAcutoff` - SPA test threshold
+- `pCutoffforFirth` - P-value cutoff for Firth
+- `is_output_markerList_in_groupTest` - Output marker lists (TRUE/FALSE)
+- `maxMissing` - Maximum missing rate
 
-With chunk merging (MERGE_CHUNKS=yes):
-- ```chr1_combined_results.txt``` - All results for chr1
-- ```chr2_combined_results.txt``` - All results for chr2
-- ```...```
-- ```saige_run_summary.txt``` - Job summary
-- ```saige_run.log``` - Detailed log
-- ```step9_analyze_results.sh``` - Auto-generated analysis script
+### Imputed Data Parameters (optional)
+- `is_imputed_data` - TRUE/FALSE
+- `minInfo` - Minimum imputation INFO score
+- `dosage_zerod_cutoff` - Dosage cutoff for zero
+- `dosage_zerod_MAC_cutoff` - MAC cutoff for dosage zero
+- `impute_method` - minor/mean/best_guess
 
-Without chunk merging (MERGE_CHUNKS=no):
-- ```chr1_chunk1_results.txt``` - Individual chunk results
-- ```chr1_chunk2_results.txt```
-- ```...```
-- ```saige_run_summary.txt``` - Job summary
-- ```saige_run.log``` - Detailed log
+## Important Notes
+1. Use `r_corr` (underscore) not `r.corr` in config file
+2. Use colons `:` not semicolons `;` in `annotation_in_groupTest`
+3. Quote comma-separated values: `CHROMOSOMES="1,2,3"`
+4. Quote special characters: `maxMAF_in_groupTest="0.0001,0.001,0.01"`
+5. Quote annotations: `annotation_in_groupTest="lof,missense:lof:missense:synonymous"`
+6. Processing order: chr1 chunk1, chr1 chunk2, ..., chr2 chunk1, chr2 chunk2, ...
+7. Merging order: chunk1, chunk2, ..., chunk10, chunk11 (numerical order)
+8. Header only from chunk1, removed from all other chunks when merging
 
----
+## Output Files
 
-### Interactive Configuration Builder
+### With Chunk Merging (MERGE_CHUNKS=yes)
 
-Create SAIGE configuration files interactively.
+chr1_combined_results.txt    - All results for chr1 (header from chunk1 only)
+chr2_combined_results.txt    - All results for chr2 (header from chunk1 only)
+chr3_combined_results.txt    - All results for chr3 (header from chunk1 only)
+...
+chr22_combined_results.txt   - All results for chr22 (header from chunk1 only)
+saige_run_summary.txt         - Job summary with status
+saige_run.log                 - Detailed execution log
 
-**Usage:**
-```
-./step8_pre1_build_saige_config.sh
-```
+### Without Chunk Merging (MERGE_CHUNKS=no)
+chr1_chunk1_results.txt       - Results for chr1 chunk1
+chr1_chunk2_results.txt       - Results for chr1 chunk2
+chr1_chunk3_results.txt       - Results for chr1 chunk3
+...
+chr2_chunk1_results.txt       - Results for chr2 chunk1
+chr2_chunk2_results.txt       - Results for chr2 chunk2
+...
+chr22_chunk1_results.txt      - Results for chr22 chunk1
+chr22_chunk2_results.txt      - Results for chr22 chunk2
+...
+saige_run_summary.txt         - Job summary
+saige_run.log                 - Detailed log
 
-**Features:**
-- Guided prompts for all parameters
-- Default values suggested in brackets
-- Follow-up questions based on previous answers
-- Basic path validation
-- Generates properly formatted config file
-- Shows configuration preview
+### Result File Columns
 
-**Example Session:**
-```
-./step8_pre1_build_saige_config.sh
+- `Gene` - Gene identifier
+- `Region` - Genomic region
+- `Group` - Annotation group (e.g., lof, missense)
+- `max_MAF` - Maximum MAF threshold used
+- `Pvalue` - Association p-value
+- `Pvalue_Burden` - Burden test p-value (if r_corr=0)
+- `Pvalue_SKAT` - SKAT test p-value (if r_corr=0)
+- `BETA_Burden` - Burden effect size
+- `SE_Burden` - Standard error
+- `N_VARIANTS` - Number of variants in gene
+- `N_CASES` - Number of cases with variant
+- `N_CONTROLS` - Number of controls with variant
 
-# ==========================================
-# SAIGE Configuration Builder
-# ==========================================
-# 
-# This wizard will help you create a SAIGE configuration file.
-# 
-# Output configuration file name [saige_config.txt]: my_analysis.txt
-# 
-# === Required Parameters ===
-# 
-# Genotype directory: gene_bfiles
-# Output directory: saige_results  
-# GMMAT model file: step1_null_model.rda
-# Variance ratio file: step1_variance_ratio.txt
-# 
-# Use separate group file per chromosome? (yes/no) [yes]: yes
-# Group files directory: group_files
-# 
-# === Format and Processing ===
-# 
-# Input format (bgen/bfile/pgen/vcf) [bgen]: bgen
-# Chromosome prefix [chr]: chr
-# Chromosome padding (auto/yes/no) [auto]: auto
-# Number of threads [8]: 16
-# Chromosomes to process [1-22]: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-# Merge chunk results? (yes/no) [yes]: yes
-# Keep individual chunk files? (yes/no) [no]: no
-# 
-# === SAIGE Parameters ===
-# 
-# Use LOCO? (TRUE/FALSE) [TRUE]: TRUE
-# Minimum MAF [0]: 0
-# Minimum MAC [1]: 1
-# MAF cutoffs for gene tests [0.0001,0.001,0.01]: 0.0001,0.001,0.01
-# Annotation categories [lof,missense;lof;missense;synonymous]: lof,missense;lof;missense;synonymous
-# Test type - r.corr (0=SKAT-O, 1=Burden) [0]: 0
-# Use Firth correction? (TRUE/FALSE) [TRUE]: TRUE
-# P-value cutoff for Firth [0.01]: 0.01
-# 
-# === Advanced Options (press Enter to skip) ===
-# 
-# Is data imputed? (TRUE/FALSE) [FALSE]: 
-# Output marker lists? (TRUE/FALSE) [TRUE]: 
-# Maximum missing rate [0.15]: 
-# 
-# === Writing Configuration File ===
-# 
-# ✓ Configuration file created: my_analysis.txt
-# 
-# === Validating Configuration ===
-# 
-# ✓ Basic validation passed
-# 
-# To run full validation:
-#   ./validate_saige_config.sh my_analysis.txt
-# 
-# To run SAIGE analysis:
-#   ./step8_run_saige_gene_tests.sh my_analysis.txt
-# 
-# Configuration file contents:
-# ==========================================
-# #!/bin/bash
-# # SAIGE-GENE Configuration File
-# # Generated: 2024-01-15 10:30:45
-# # Generated by: build_saige_config.sh
-# 
-# #==========================================================================
-# # REQUIRED PARAMETERS
-# #==========================================================================
-# 
-# # Input/Output Directories
-# GENOTYPE_DIR=gene_bfiles
-# OUTPUT_DIR=saige_results
-# GMMAT_MODEL=step1_null_model.rda
-# VARIANCE_RATIO=step1_variance_ratio.txt
-# 
-# # Group File Configuration
-# GROUP_FILE_BY_CHR=yes
-# GROUP_DIR=group_files
-# 
-# #==========================================================================
-# # FORMAT AND PROCESSING
-# #==========================================================================
-# 
-# # Input format and file naming
-# INPUT_FORMAT=bgen
-# CHR_PREFIX=chr
-# CHR_PADDING=auto
-# 
-# # Processing control
-# THREADS=16
-# CHROMOSOMES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-# CHUNK_PATTERN=chunk
-# 
-# # Result merging
-# MERGE_CHUNKS=yes
-# KEEP_CHUNK_FILES=no
-# 
-# #==========================================================================
-# # SAIGE PARAMETERS
-# #==========================================================================
-# 
-# # LOCO and filtering
-# LOCO=TRUE
-# minMAF=0
-# minMAC=1
-# maxMissing=0.15
-# 
-# # Gene-based test parameters
-# maxMAF_in_groupTest=0.0001,0.001,0.01
-# annotation_in_groupTest=lof,missense;lof;missense;synonymous
-# r.corr=0
-# 
-# # Effect size estimation
-# is_Firth_beta=TRUE
-# pCutoffforFirth=0.01
-# 
-# # Output control
-# is_output_markerList_in_groupTest=TRUE
-# 
-# #==========================================================================
-# # ADDITIONAL OPTIONS
-# #==========================================================================
-# 
-# # Uncomment and modify as needed:
-# # MACCutoff_to_CollapseUltraRare=10
-# # minGroupMAC_in_BurdenTest=5
-# # weights.beta=1,25
-# # SPAcutoff=2
-# # is_single_in_groupTest=TRUE
-# # is_no_weight_in_groupTest=FALSE
-# # markers_per_chunk=10000
-# # groups_per_chunk=100
-# 
-# ==========================================
-```
+### Log File Contents (saige_run.log)
 
-**Output:**
-- Formatted configuration file with all parameters
-- Basic validation of file paths
-- Ready-to-use configuration
-- Next step instructions
+- Configuration summary
+- SAIGE command for each job
+- Processing status per chromosome/chunk
+- Merge operations (if enabled)
+- Error messages (if any)
+- Timing information
 
----
+### Summary File Contents (saige_run_summary.txt)
 
-### Validate Configuration File
-
-Validate SAIGE configuration before running analysis.
-
-**Usage:**
-```
-./step8_pre2_validate_saige_config.sh <config_file>
-```
-
-**Examples:**
-```
-# Validate configuration file
-./step8_pre2_validate_saige_config.sh saige_config.txt
-
-# Validate after interactive creation
-./step8_pre1_build_saige_config.sh
-./step8_pre2_validate_saige_config.sh saige_config.txt
-
-# Validate and see detailed checks
-./step8_pre2_validate_saige_config.sh my_analysis_config.txt
-
-# Example output:
-# ==========================================
-# SAIGE Configuration Validator
-# ==========================================
-# 
-# Checking required parameters...
-# 
-#   ✓ GENOTYPE_DIR is set
-#     ✓ Exists: gene_bfiles
-#   ✓ OUTPUT_DIR is set
-#   ✓ GMMAT_MODEL is set
-#     ✓ Exists: step1_null_model.rda
-#   ✓ VARIANCE_RATIO is set
-#     ✓ Exists: step1_variance_ratio.txt
-# 
-# Checking group file configuration...
-# 
-#   Using per-chromosome group files
-#     ✓ Exists: group_files
-#     ✓ Found group files in directory
-# 
-# Checking format and naming...
-# 
-#   Input format: bgen
-#     ✓ Valid format
-#   Chromosome prefix: 'chr'
-#   Chromosome padding: auto
-# 
-# Checking processing parameters...
-# 
-#   Threads: 16
-#   Chromosomes: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
-#   Merge chunks: yes
-#   Keep chunk files: no
-# 
-# Checking SAIGE parameters...
-# 
-#   LOCO: TRUE
-#   minMAF: 0
-#   minMAC: 1
-#   maxMAF_in_groupTest: 0.0001,0.001,0.01
-#   annotation_in_groupTest: lof,missense;lof;missense;synonymous
-#   r.corr: 0
-#   is_Firth_beta: TRUE
-# 
-# Checking genotype files...
-# 
-#   Found 22 genotype files in gene_bfiles
-# 
-# ==========================================
-# Validation Summary
-# ==========================================
-# Errors: 0
-# Warnings: 0
-# 
-# ✓ Configuration appears valid
-# 
-# Ready to run:
-#   ./step8_run_saige_gene_tests.sh saige_config.txt
-
-```
-
-**Validation Checks:**
-
-Required Parameters:
-- ✓ All required parameters are set
-- ✓ Directories exist
-- ✓ Files are accessible
-
-Group Files:
-- ✓ Group file exists or directory contains group files
-- ✓ At least one chr*_group*.txt file found
-
-Format Validation:
-- ✓ INPUT_FORMAT is valid (bgen/bfile/pgen/vcf)
-- ✓ CHR_PADDING is valid (auto/yes/no)
-- ✓ Boolean parameters are TRUE/FALSE
-
-File Detection:
-- ✓ Genotype files exist in specified format
-- ✓ Count of available files
-
-Parameter Values:
-- ✓ THREADS is numeric
-- ✓ r.corr is 0 or 1
-- ✓ LOCO is TRUE or FALSE
-
-**Output:**
-- Validation report with errors and warnings
-- Exit code 0 if valid, 1 if errors found
-- Ready-to-run command if validation passes
-
-**Common Validation Errors:**
-
-```
-# Error: Missing required parameter
-# ✗ ERROR: GMMAT_MODEL is not set
-# Fix: Add to config file: GMMAT_MODEL=/path/to/file.rda
-
-# Error: File not found
-# ⚠ WARNING: File not found: step1_null_model.rda
-# Fix: Check path or create file first
-
-# Error: Invalid format
-# ✗ ERROR: Invalid INPUT_FORMAT: bggen
-# Fix: Use bgen, bfile, pgen, or vcf
-
-# Error: Invalid boolean
-# ⚠ WARNING: LOCO should be TRUE or FALSE
-# Fix: Change LOCO=true to LOCO=TRUE
-
-# Error: Invalid numeric
-# ✗ ERROR: THREADS must be a positive integer
-# Fix: THREADS=16 (not THREADS=16threads)
-```
+- Header with date/time
+- Table format: Chr | Chunk | Genotype_File | Output_File | Status
+- Merge summary (if MERGE_CHUNKS=yes)
+- Overall statistics (total/successful/failed jobs)
 
 ---
 
