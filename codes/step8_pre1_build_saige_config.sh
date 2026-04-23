@@ -48,6 +48,29 @@ echo ""
 read -p "Input format (bgen/bfile/pgen/vcf) [bgen]: " INPUT_FORMAT
 INPUT_FORMAT="${INPUT_FORMAT:-bgen}"
 
+echo ""
+echo "=== Module Configuration ==="
+echo ""
+
+read -p "Use environment module system? (yes/no) [no]: " USE_MODULE
+USE_MODULE="${USE_MODULE:-no}"
+
+if [ "$USE_MODULE" = "yes" ]; then
+    read -p "Module name to load [SAIGE]: " MODULE_NAME
+    MODULE_NAME="${MODULE_NAME:-SAIGE}"
+    
+    read -p "SAIGE command after loading module [saige]: " SAIGE_CMD
+    SAIGE_CMD="${SAIGE_CMD:-saige}"
+else
+    read -p "SAIGE command or path [Rscript]: " SAIGE_CMD
+    SAIGE_CMD="${SAIGE_CMD:-Rscript}"
+    MODULE_NAME=""
+fi
+
+echo ""
+echo "=== File Naming Configuration ==="
+echo ""
+
 read -p "Chromosome prefix [chr]: " CHR_PREFIX
 CHR_PREFIX="${CHR_PREFIX:-chr}"
 
@@ -70,7 +93,7 @@ CHUNKED_INPUT="${CHUNKED_INPUT:-no}"
 if [ "$CHUNKED_INPUT" = "yes" ]; then
     read -p "Chunk pattern in filename [chunk]: " CHUNK_PATTERN
     CHUNK_PATTERN="${CHUNK_PATTERN:-chunk}"
-    echo "  Expected file naming: ${CHR_PREFIX}*_genes_${CHUNK_PATTERN}*"
+    echo "  Expected file naming: $${CHR_PREFIX}*_genes_$${CHUNK_PATTERN}*"
 else
     CHUNK_PATTERN="chunk"
 fi
@@ -163,6 +186,9 @@ is_output_markerList_in_groupTest="${is_output_markerList_in_groupTest:-TRUE}"
 read -p "Maximum missing rate [0.15]: " maxMissing
 maxMissing="${maxMissing:-0.15}"
 
+read -p "SPA cutoff [2]: " SPAcutoff
+SPAcutoff="${SPAcutoff:-2}"
+
 echo ""
 echo "=== Writing Configuration File ==="
 echo ""
@@ -204,8 +230,27 @@ cat >> "$CONFIG_FILE" << EOF
 # FORMAT AND PROCESSING
 #==========================================================================
 
-# Input format and file naming
+# Input format
 INPUT_FORMAT=$INPUT_FORMAT
+
+# Module Configuration
+USE_MODULE=$USE_MODULE
+EOF
+
+if [ "$USE_MODULE" = "yes" ]; then
+    cat >> "$CONFIG_FILE" << EOF
+MODULE_NAME=$MODULE_NAME
+SAIGE_CMD=$SAIGE_CMD
+EOF
+else
+    cat >> "$CONFIG_FILE" << EOF
+SAIGE_CMD=$SAIGE_CMD
+EOF
+fi
+
+cat >> "$CONFIG_FILE" << EOF
+
+# File naming format
 CHR_PREFIX=$CHR_PREFIX
 CHR_PADDING=$CHR_PADDING
 
@@ -235,7 +280,7 @@ minMAC=$minMAC
 EOF
 
 if [ -n "$maxMissing" ]; then
-    echo "maxMissing=$maxMissing" >> "$CONFIG_FILE"
+    echo "maxMissing=$$maxMissing" >> "$$CONFIG_FILE"
 fi
 
 cat >> "$CONFIG_FILE" << EOF
@@ -250,7 +295,16 @@ is_Firth_beta=$is_Firth_beta
 EOF
 
 if [ -n "$pCutoffforFirth" ]; then
-    echo "pCutoffforFirth=$pCutoffforFirth" >> "$CONFIG_FILE"
+    echo "pCutoffforFirth=$$pCutoffforFirth" >> "$$CONFIG_FILE"
+fi
+
+# Add SPA cutoff
+if [ -n "$SPAcutoff" ]; then
+    cat >> "$CONFIG_FILE" << EOF
+
+# SPA parameters
+SPAcutoff=$SPAcutoff
+EOF
 fi
 
 # Add imputed data parameters if applicable
@@ -260,10 +314,10 @@ if [ "$is_imputed_data" = "TRUE" ]; then
 # Imputed data parameters
 is_imputed_data=$is_imputed_data
 EOF
-    [ -n "$minInfo" ] && echo "minInfo=$minInfo" >> "$CONFIG_FILE"
-    [ -n "$dosage_zerod_cutoff" ] && echo "dosage_zerod_cutoff=$dosage_zerod_cutoff" >> "$CONFIG_FILE"
-    [ -n "$dosage_zerod_MAC_cutoff" ] && echo "dosage_zerod_MAC_cutoff=$dosage_zerod_MAC_cutoff" >> "$CONFIG_FILE"
-    [ -n "$impute_method" ] && echo "impute_method=$impute_method" >> "$CONFIG_FILE"
+    [ -n "$$minInfo" ] && echo "minInfo=$$minInfo" >> "$CONFIG_FILE"
+    [ -n "$$dosage_zerod_cutoff" ] && echo "dosage_zerod_cutoff=$$dosage_zerod_cutoff" >> "$CONFIG_FILE"
+    [ -n "$$dosage_zerod_MAC_cutoff" ] && echo "dosage_zerod_MAC_cutoff=$$dosage_zerod_MAC_cutoff" >> "$CONFIG_FILE"
+    [ -n "$$impute_method" ] && echo "impute_method=$$impute_method" >> "$CONFIG_FILE"
 fi
 
 # Add output parameters
@@ -280,7 +334,6 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 # MACCutoff_to_CollapseUltraRare=10
 # minGroupMAC_in_BurdenTest=5
 # weights_beta="1,25"
-# SPAcutoff=2
 # is_single_in_groupTest=TRUE
 # is_no_weight_in_groupTest=FALSE
 # markers_per_chunk=10000
@@ -295,7 +348,22 @@ is_output_markerList_in_groupTest=$is_output_markerList_in_groupTest
 #     2. lof (only)
 #     3. missense (only)
 #     4. synonymous (only)
-# - Values with special characters (colons, semicolons, commas) are quoted
+# - Values with special characters (colons, semicolons, commas) MUST be quoted
+# - CHROMOSOMES parameter MUST be quoted when containing commas
+
+# MODULE CONFIGURATION EXAMPLES:
+# Example 1: Use module system
+#   USE_MODULE=yes
+#   MODULE_NAME=SAIGE
+#   SAIGE_CMD=saige
+#
+# Example 2: Use Rscript directly (no module)
+#   USE_MODULE=no
+#   SAIGE_CMD=Rscript
+#
+# Example 3: Custom SAIGE installation
+#   USE_MODULE=no
+#   SAIGE_CMD=/path/to/saige/bin/saige
 
 EOF
 
@@ -337,15 +405,62 @@ else
     fi
 fi
 
+# Validate input format
+if [[ ! "$$INPUT_FORMAT" =~ ^(bgen|bfile|pgen|vcf)$$ ]]; then
+    echo "⚠ WARNING: Invalid input format '$INPUT_FORMAT' (should be bgen, bfile, pgen, or vcf)"
+    ERRORS=$((ERRORS + 1))
+fi
+
 # Validate allele order
-if [[ ! "$ALLELE_ORDER" =~ ^(alt-first|ref-first)$ ]]; then
+if [[ ! "$$ALLELE_ORDER" =~ ^(alt-first|ref-first)$$ ]]; then
     echo "⚠ WARNING: Invalid allele order '$ALLELE_ORDER' (should be alt-first or ref-first)"
     ERRORS=$((ERRORS + 1))
 fi
 
 # Validate r_corr
-if [[ ! "$r_corr" =~ ^[01]$ ]]; then
-    echo "⚠ WARNING: r_corr should be 0 (SKAT-O) or 1 (Burden), got: $r_corr"
+if [[ ! "$$r_corr" =~ ^[01]$$ ]]; then
+    echo "⚠ WARNING: r_corr should be 0 (SKAT-O) or 1(Burden), got: $r_corr"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Validate module configuration
+if [ "$USE_MODULE" = "yes" ]; then
+    if [ -z "$MODULE_NAME" ]; then
+        echo "⚠ WARNING: USE_MODULE=yes but MODULE_NAME is empty"
+        ERRORS=$((ERRORS + 1))
+    fi
+    if [ -z "$SAIGE_CMD" ]; then
+        echo "⚠ WARNING: USE_MODULE=yes but SAIGE_CMD is empty"
+        ERRORS=$((ERRORS + 1))
+    fi
+    echo "ℹ Module configuration:"
+    echo "  - Will load module: $MODULE_NAME"
+    echo "  - Will use command: $SAIGE_CMD"
+else
+    if [ -z "$SAIGE_CMD" ]; then
+        echo "⚠ WARNING: SAIGE_CMD is empty"
+        ERRORS=$((ERRORS + 1))
+    else
+        echo "ℹ Module configuration:"
+        echo "  - Module system: disabled"
+        echo "  - Will use command: $SAIGE_CMD"
+        
+        # Check if command exists (only if it's not a path)
+        if [[ ! "$SAIGE_CMD" =~ / ]]; then
+            if ! command -v "$SAIGE_CMD" &> /dev/null; then
+                echo "⚠ WARNING: Command '$SAIGE_CMD' not found in PATH"
+                WARNINGS=$((WARNINGS + 1))
+            fi
+        elif [ ! -f "$SAIGE_CMD" ] && [ ! -x "$SAIGE_CMD" ]; then
+            echo "⚠ WARNING: SAIGE_CMD path '$SAIGE_CMD' not found or not executable"
+            WARNINGS=$((WARNINGS + 1))
+        fi
+    fi
+fi
+
+# Validate chromosome padding
+if [[ ! "$CHR_PADDING" =~ ^(auto|yes|no)$ ]]; then
+    echo "⚠ WARNING: Invalid CHR_PADDING '$CHR_PADDING' (should be auto, yes, or no)"
     WARNINGS=$((WARNINGS + 1))
 fi
 
@@ -360,34 +475,87 @@ if [ "$CHUNKED_INPUT" = "yes" ] && [ -d "$GENOTYPE_DIR" ]; then
     fi
 fi
 
+# Validate numeric parameters
+if ! [[ "$THREADS" =~ ^[0-9]+$ ]]; then
+    echo "⚠ WARNING: THREADS should be a positive integer, got: $THREADS"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+if ! [[ "$minMAF" =~ ^[0-9]*\.?[0-9]+$ ]]; then
+    echo "⚠ WARNING: minMAF should be numeric, got: $minMAF"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+if ! [[ "$minMAC" =~ ^[0-9]+$ ]]; then
+    echo "⚠ WARNING: minMAC should be a positive integer, got: $minMAC"
+    WARNINGS=$((WARNINGS + 1))
+fi
+
+# Validate boolean parameters
+for param in LOCO is_Firth_beta is_output_markerList_in_groupTest is_imputed_data; do
+    eval value=\$$param
+    if [ -n "$value" ] && [[ ! "$value" =~ ^(TRUE|FALSE)$ ]]; then
+        echo "⚠ WARNING: $param should be TRUE or FALSE, got: $value"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+done
+
+echo ""
+
+# Summary
 if [ $ERRORS -eq 0 ] && [ $WARNINGS -eq 0 ]; then
-    echo "✓ Basic validation passed"
+    echo "=========================================="
+    echo "✓ Validation passed successfully!"
+    echo "=========================================="
     echo ""
-    echo "To run full validation:"
-    echo "  ./validate_saige_config.sh $CONFIG_FILE"
+    echo "Configuration Summary:"
+    echo "  Input format: $INPUT_FORMAT"
+    echo "  Module system: $USE_MODULE"
+    if [ "$USE_MODULE" = "yes" ]; then
+        echo "  Module name: $MODULE_NAME"
+    fi
+    echo "  SAIGE command: $SAIGE_CMD"
+    echo "  Chromosome prefix: $CHR_PREFIX"
+    echo "  Chromosome padding: $CHR_PADDING"
+    echo "  Chunked input: $CHUNKED_INPUT"
+    echo "  Merge chunks: $MERGE_CHUNKS"
+    echo "  Allele order: $ALLELE_ORDER"
+    echo "  Test type: $([ "$r_corr" -eq 0 ] && echo 'SKAT-O' || echo 'Burden')"
     echo ""
-    echo "To run SAIGE analysis:"
-    echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
+    echo "Next steps:"
+    echo "  1. Review configuration: cat $CONFIG_FILE"
+    echo "  2. Run full validation: ./validate_saige_config.sh $CONFIG_FILE"
+    echo "  3. Run SAIGE analysis: ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
 elif [ $ERRORS -eq 0 ]; then
-    echo ""
+    echo "=========================================="
     echo "✓ Validation passed with $WARNINGS warning(s)"
+    echo "=========================================="
     echo ""
-    echo "To run full validation:"
-    echo "  ./validate_saige_config.sh $CONFIG_FILE"
+    echo "The configuration file was created but has warnings."
+    echo "Please review the warnings above."
     echo ""
-    echo "To run SAIGE analysis:"
-    echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
+    echo "Next steps:"
+    echo "  1. Review configuration: cat $CONFIG_FILE"
+    echo "  2. Run full validation: ./validate_saige_config.sh $CONFIG_FILE"
+    echo "  3. Fix warnings if needed, then run: ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
 else
+    echo "=========================================="
+    echo "⚠ Validation found issues"
+    echo "=========================================="
     echo ""
-    echo "⚠ Found $ERRORS error(s) and $WARNINGS warning(s)"
-    echo "  Please check paths before running analysis"
+    echo "Found $ERRORS error(s) and $WARNINGS warning(s)"
+    echo "Please review and fix the issues above before running analysis."
     echo ""
-    echo "To validate configuration:"
-    echo "  ./validate_saige_config.sh $CONFIG_FILE"
+    echo "Next steps:"
+    echo "  1. Review configuration: cat $CONFIG_FILE"
+    echo "  2. Fix the errors listed above"
+    echo "  3. Run validation: ./validate_saige_config.sh $CONFIG_FILE"
+    echo "  4. When ready: ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
 fi
 
 echo ""
-echo "Configuration file contents:"
+echo "=========================================="
+echo "Configuration File Contents"
 echo "=========================================="
 cat "$CONFIG_FILE"
 echo "=========================================="
