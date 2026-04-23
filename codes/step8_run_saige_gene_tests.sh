@@ -452,14 +452,14 @@ if [ "$USE_MODULE" = "yes" ]; then
     
     # Load the module
     echo "  Loading module: $MODULE_NAME"
-    if module load "$MODULE_NAME" 2>&1 | grep -qi "error"; then
+    if ! module load "$MODULE_NAME" 2>&1; then
         echo "  ERROR: Failed to load module $MODULE_NAME" >&2
         exit 1
     fi
     
     echo "  ✓ Module $MODULE_NAME loaded successfully"
     
-    # Set SAIGE command (use provided SAIGE_CMD)
+    # Set SAIGE command (typically the module provides a wrapper command)
     STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
     echo "  SAIGE command: $STEP2_CMD"
     
@@ -470,7 +470,7 @@ else
     if [ "$SAIGE_CMD" = "Rscript" ] || [[ "$SAIGE_CMD" == */Rscript ]]; then
         STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
     else
-        # Assume SAIGE_CMD already includes the full command
+        # Assume SAIGE_CMD is a wrapper command (like 'saige')
         STEP2_CMD="$SAIGE_CMD step2_SPAtests.R"
     fi
     
@@ -483,13 +483,46 @@ echo "  Verifying SAIGE availability..."
 # Extract base command (first word)
 BASE_CMD=$(echo "$STEP2_CMD" | awk '{print $1}')
 
-if ! command -v "$BASE_CMD" &> /dev/null; then
-    echo "  ERROR: Command '$BASE_CMD' not found in PATH" >&2
-    echo "  Please check your USE_MODULE and SAIGE_CMD configuration" >&2
+# Test 1: Check if command exists
+if command -v "$BASE_CMD" &> /dev/null; then
+    echo "  ✓ Command '$BASE_CMD' found in PATH"
+    SAIGE_PATH=$(command -v "$BASE_CMD")
+    echo "    Location: $SAIGE_PATH"
+else
+    echo "  ⚠ WARNING: Command '$BASE_CMD' not directly found in PATH"
+    echo "    This may be normal for singularity/container-based installations"
+fi
+
+# Test 2: Try running the help command to verify functionality
+echo "  Testing SAIGE functionality..."
+TEST_OUTPUT=$($STEP2_CMD --help 2>&1 || true)
+
+if echo "$TEST_OUTPUT" | grep -qi "step2_SPAtests.R\|usage\|options\|arguments"; then
+    echo "  ✓ SAIGE step2_SPAtests.R is functional"
+    
+    # Show first few lines of help output
+    echo ""
+    echo "  SAIGE Help Output (first 10 lines):"
+    echo "$TEST_OUTPUT" | head -10 | sed 's/^/    /'
+    echo "    ..."
+    echo ""
+else
+    echo "  ✗ ERROR: SAIGE step2_SPAtests.R does not appear to be functional" >&2
+    echo "" >&2
+    echo "  Attempted command: $STEP2_CMD --help" >&2
+    echo "" >&2
+    echo "  Output received:" >&2
+    echo "$TEST_OUTPUT" | head -20 | sed 's/^/    /' >&2
+    echo "" >&2
+    echo "  Please check your SAIGE installation and configuration:" >&2
+    echo "    - Module configuration (USE_MODULE, MODULE_NAME)" >&2
+    echo "    - SAIGE_CMD setting" >&2
+    echo "    - Singularity/container availability" >&2
+    echo "" >&2
     exit 1
 fi
 
-echo "  ✓ SAIGE command is available"
+echo "  ✓ SAIGE is ready to use"
 echo ""
 
 #==========================================
@@ -858,55 +891,6 @@ echo ""
 if [ $FAILED_JOBS -gt 0 ]; then
     echo "⚠ WARNING: $FAILED_JOBS job(s) failed"
     echo "Check log file for details: $LOG_FILE"
-    echo ""
-fi
-
-#==========================================
-# Post-Processing Instructions
-#==========================================
-
-if [ $SUCCESSFUL_JOBS -gt 0 ]; then
-    echo "=========================================="
-    echo "Post-Processing Options"
-    echo "=========================================="
-    echo ""
-    
-    if [ "$MERGE_CHUNKS" = "yes" ]; then
-        echo "Chunk results have been merged by chromosome."
-        echo ""
-        echo "To analyze results:"
-        echo "  cd $OUTPUT_DIR"
-        echo "  ../step9_analyze_results.sh standard"
-        echo ""
-    else
-        echo "Individual chunk files available."
-        echo ""
-        echo "To analyze results:"
-        echo "  cd $OUTPUT_DIR"
-        echo "  ../step9_analyze_results.sh standard"
-        echo ""
-    fi
-    
-    echo "Quick commands:"
-    echo ""
-    echo "# Extract significant results (p < 1e-5)"
-    if [ "$MERGE_CHUNKS" = "yes" ]; then
-        echo "  head -1 $OUTPUT_DIR/chr1_combined_results.txt > $OUTPUT_DIR/significant.txt"
-        echo "  awk 'NR>1 && $NF < 1e-5' $OUTPUT_DIR/chr*_combined_results.txt >> $OUTPUT_DIR/significant.txt"
-    else
-        echo "  head -1 $OUTPUT_DIR/chr1_all_results.txt > $OUTPUT_DIR/significant.txt"
-        echo "  awk 'NR>1 && $NF < 1e-5' $OUTPUT_DIR/chr*_results.txt >> $OUTPUT_DIR/significant.txt"
-    fi
-    echo ""
-    
-    echo "# Top 20 genes"
-    if [ "$MERGE_CHUNKS" = "yes" ]; then
-        echo "  head -1 $OUTPUT_DIR/chr1_combined_results.txt > $OUTPUT_DIR/top20.txt"
-        echo "  tail -n +2 -q $OUTPUT_DIR/chr*_combined_results.txt | sort -k$NF,$NF -g | head -20 >> $OUTPUT_DIR/top20.txt"
-    else
-        echo "  head -1 $OUTPUT_DIR/chr1_all_results.txt > $OUTPUT_DIR/top20.txt"
-        echo "  tail -n +2 -q $OUTPUT_DIR/chr*_results.txt | sort -k$NF,$NF -g | head -20 >> $OUTPUT_DIR/top20.txt"
-    fi
     echo ""
 fi
 
