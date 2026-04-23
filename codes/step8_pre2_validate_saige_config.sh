@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 # step8_pre2_validate_saige_config.sh
 # Validates SAIGE configuration file before running analysis
@@ -175,7 +176,38 @@ fi
 echo "  minMAF: ${minMAF:-0}"
 echo "  minMAC: ${minMAC:-1}"
 echo "  maxMAF_in_groupTest: ${maxMAF_in_groupTest:-0.0001,0.001,0.01}"
-echo "  annotation_in_groupTest: ${annotation_in_groupTest:-lof,missense;lof,missense;lof;synonymous}"
+echo "  annotation_in_groupTest: ${annotation_in_groupTest:-lof,missense:lof:missense:synonymous}"
+
+# Check for problematic separators in annotation_in_groupTest
+if [ -n "${annotation_in_groupTest:-}" ]; then
+    # Check if it contains semicolons (old format)
+    if [[ "$annotation_in_groupTest" == *";"* ]]; then
+        echo "    ⚠ WARNING: annotation_in_groupTest contains semicolons (;)"
+        echo "      SAIGE expects colons (:) as separators"
+        echo "      Current value: $annotation_in_groupTest"
+        echo "      Expected format: lof,missense:lof:missense:synonymous"
+        WARNINGS=$((WARNINGS + 1))
+    fi
+    
+    # Check if value is properly quoted in config file
+    if grep -E "^annotation_in_groupTest=[^\"'].*[:;]" "$CONFIG_FILE" 2>/dev/null | grep -qv '^#'; then
+        echo "    ⚠ WARNING: annotation_in_groupTest may not be properly quoted in config"
+        echo "      Values with colons or semicolons should be quoted"
+        echo "      Correct: annotation_in_groupTest=\"lof,missense:lof:missense:synonymous\""
+        WARNINGS=$((WARNINGS + 1))
+    fi
+fi
+
+# Check for problematic separators in maxMAF_in_groupTest
+if [ -n "${maxMAF_in_groupTest:-}" ]; then
+    # Check if value is properly quoted in config file (contains commas)
+    if grep -E "^maxMAF_in_groupTest=[^\"'].*," "$CONFIG_FILE" 2>/dev/null | grep -qv '^#'; then
+        echo "    ⚠ WARNING: maxMAF_in_groupTest may not be properly quoted in config"
+        echo "      Values with commas should be quoted"
+        echo "      Correct: maxMAF_in_groupTest=\"0.0001,0.001,0.01\""
+        WARNINGS=$((WARNINGS + 1))
+    fi
+fi
 
 # Check r_corr (stored with underscore, converted to r.corr for SAIGE)
 r_corr="${r_corr:-0}"
@@ -186,7 +218,7 @@ if [[ ! "$r_corr" =~ ^[01]$ ]]; then
 fi
 
 # Check for old r.corr format and give helpful error
-if grep -q "^r\.corr=" "$CONFIG_FILE" 2>/dev/null; then
+if grep -E "^r\.corr=" "$CONFIG_FILE" 2>/dev/null | grep -qv '^#'; then
     echo "    ✗ ERROR: Found 'r.corr=' in config file"
     echo "      Please use 'r_corr=' instead (bash variables cannot contain dots)"
     echo "      The script will automatically convert r_corr to --r.corr for SAIGE"
@@ -335,7 +367,7 @@ if [ $ERRORS -eq 0 ]; then
     fi
     echo ""
     echo "Ready to run:"
-    echo "  ./step8_run_saige_gene_tests.sh $CONFIG_FILE"
+    echo "./step8_run_saige_gene_tests.sh $CONFIG_FILE"
     echo ""
     exit 0
 else
@@ -343,6 +375,16 @@ else
     if [ $WARNINGS -gt 0 ]; then
         echo "  Also has $WARNINGS warning(s)"
     fi
+    echo ""
+    echo "Common fixes:"
+    echo "  1. Quote values with special characters:"
+    echo "     annotation_in_groupTest=\"lof,missense:lof:missense:synonymous\""
+    echo "     maxMAF_in_groupTest=\"0.0001,0.001,0.01\""
+    echo ""
+    echo "  2. Use underscores instead of dots in variable names:"
+    echo "     r_corr=0  (NOT r.corr=0)"
+    echo ""
+    echo "  3. Use colons (:) not semicolons (;) in annotation_in_groupTest"
     echo ""
     exit 1
 fi
