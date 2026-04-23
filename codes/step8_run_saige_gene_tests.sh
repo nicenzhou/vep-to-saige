@@ -187,8 +187,8 @@ detect_chr_padding() {
     echo "no"
 }
 
-# Function to find genotype file with flexible naming
-find_genotype_file() {
+# Function to find genotype files for a chromosome in sorted order
+find_genotype_files_sorted() {
     local dir="$1"
     local chr="$2"
     local ext="$3"
@@ -197,7 +197,6 @@ find_genotype_file() {
     local pattern="$6"
     
     local chr_formatted=$(format_chr "$chr" "$padding")
-    local found_files=()
     
     # Try different naming patterns
     local patterns=(
@@ -207,16 +206,48 @@ find_genotype_file() {
         "${dir}/${chr_formatted}_genes.${ext}"
     )
     
+    # Collect all matching files
+    local all_files=()
     for pat in "${patterns[@]}"; do
         for file in $pat; do
             if [ -f "$file" ]; then
-                found_files+=("$file")
+                all_files+=("$file")
             fi
         done
     done
     
-    # Return unique files
-    printf '%s\n' "${found_files[@]}" | sort -u
+    # Sort files: non-chunked first, then chunked by chunk number
+    if [ ${#all_files[@]} -gt 0 ]; then
+        # Separate chunked and non-chunked files
+        local non_chunked=()
+        local chunked=()
+        
+        for file in "${all_files[@]}"; do
+            local basename=$(basename "$file")
+            if [[ "$basename" =~ ${pattern}[0-9]+ ]]; then
+                chunked+=("$file")
+            else
+                non_chunked+=("$file")
+            fi
+        done
+        
+        # Output non-chunked files first
+        printf '%s\n' "${non_chunked[@]}" 2>/dev/null | sort -u
+        
+        # Output chunked files sorted numerically by chunk number
+        if [ ${#chunked[@]} -gt 0 ]; then
+            # Extract chunk numbers and sort numerically
+            for f in "${chunked[@]}"; do
+                local fname=$(basename "$f")
+                # Extract chunk number
+                if [[ "$fname" =~ ${pattern}([0-9]+) ]]; then
+                    chunk_num="${BASH_REMATCH[1]}"
+                    # Zero-pad chunk number for sorting, then output filename
+                    printf "%010d %s\n" "$chunk_num" "$f"
+                fi
+            done | sort -n -k1,1 | cut -d' ' -f2-
+        fi
+    fi
 }
 
 # Function to find group file with flexible naming
@@ -248,12 +279,13 @@ find_group_file() {
     return 1
 }
 
-# Function to merge chunk results by chromosome
+# Function to merge chunk results by chromosome in numerical order
 merge_chunk_results() {
     local chr="$1"
     local output_dir="$2"
     local keep_chunks="$3"
     
+    # Find all chunk files for this chromosome
     local chunk_files=("$output_dir"/chr${chr}_chunk*_results.txt)
     
     # Check if any chunk files exist
@@ -266,32 +298,74 @@ merge_chunk_results() {
     
     echo "  Merging ${#chunk_files[@]} chunk files for chr${chr}..."
     
-    # Sort chunk files by chunk number to maintain order
-    local sorted_chunks=($(printf '%s\n' "${chunk_files[@]}" | sort -V))
+    # Sort chunk files numerically by chunk number (chunk1, chunk2, ..., chunk10, chunk11, ...)
+    local sorted_chunks=()
+    for f in "${chunk_files[@]}"; do
+        local fname=$(basename "$f")
+        # Extract chunk number from filename (e.g., chr1_chunk10_results.txt -> 10)
+        if [[ "$fname" =~ chr${chr}_chunk([0-9]+)_results\.txt ]]; then
+            chunk_num="${BASH_REMATCH[1]}"
+            # Store with zero-padded chunk number for sorting
+            printf "%010d %s\n" "$chunk_num" "$f"
+        fi
+    done | sort -n -k1,1 | while read -r _ filepath; do
+        sorted_chunks+=("$filepath")
+    done
     
-    # Get header from first chunk
+    # Re-read sorted chunks into array
+    sorted_chunks=()
+    while IFS= read -r line; do
+        filepath=$(echo "$line" | cut -d' ' -f2-)
+        sorted_chunks+=("$filepath")
+    done < <(
+        for f in "${chunk_files[@]}"; do
+            local fname=$(basename "$f")
+            if [[ "$fname" =~ chr${chr}_chunk([0-9]+)_results\.txt ]]; then
+                chunk_num="${BASH_REMATCH[1]}"
+                printf "%010d %s\n" "$chunk_num" "$f"
+            fi
+        done | sort -n -k1,1
+    )
+    
+    if [ ${#sorted_chunks[@]} -eq 0 ]; then
+        echo "    ✗ No valid chunk files found"
+        return 1
+    fi
+    
+    echo "    Processing chunks in order:"
+    for chunk_file in "${sorted_chunks[@]}"; do
+        echo "      - $(basename "$chunk_file")"
+    done
+    
+    # Get header from first chunk only
     if [ -f "${sorted_chunks[0]}" ]; then
+        echo "    Writing header from: $(basename "${sorted_chunks[0]}")"
         head -1 "${sorted_chunks[0]}" > "$combined_file"
         
         # Append data from all chunks (skip headers)
+        local chunk_idx=0
         for chunk_file in "${sorted_chunks[@]}"; do
+            chunk_idx=$((chunk_idx + 1))
             if [ -f "$chunk_file" ]; then
+                # Skip header line (line 1) and append data
                 tail -n +2 "$chunk_file" >> "$combined_file"
+                echo "      ✓ Merged chunk $chunk_idx: $(basename "$chunk_file")"
             fi
         done
         
         # Count total results
         local total_lines=$(($(wc -l < "$combined_file") - 1))
-        echo "    ✓ Combined file created: $(basename $combined_file)"
-        echo "    Total results: $total_lines"
+        echo "    ✓ Combined file created: $(basename "$combined_file")"
+        echo "    ✓ Total results: $total_lines (from ${#sorted_chunks[@]} chunks)"
         
         # Remove chunk files if requested
         if [ "$keep_chunks" = "no" ]; then
             echo "    Removing individual chunk files..."
             for chunk_file in "${sorted_chunks[@]}"; do
                 rm -f "$chunk_file"
+                echo "      ✓ Removed: $(basename "$chunk_file")"
             done
-            echo "    ✓ Chunk files removed"
+            echo "    ✓ All chunk files removed"
         fi
         
         return 0
@@ -620,8 +694,11 @@ echo ""
 echo "=========================================="
 echo ""
 
-# Convert chromosome list to array
+# Convert chromosome list to array and sort numerically
 IFS=',' read -ra CHR_ARRAY <<< "$CHROMOSOMES"
+
+# Sort chromosomes numerically (1, 2, 3, ..., 10, 11, ..., 22)
+SORTED_CHR_ARRAY=($(printf '%s\n' "${CHR_ARRAY[@]}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | sort -V))
 
 TOTAL_JOBS=0
 SUCCESSFUL_JOBS=0
@@ -638,7 +715,8 @@ declare -A CHR_HAS_CHUNKS
     echo "---------------------------------------------------------------------------------------------------------------"
 } > "$SUMMARY_FILE"
 
-for chr in "${CHR_ARRAY[@]}"; do
+# Process chromosomes in numerical order
+for chr in "${SORTED_CHR_ARRAY[@]}"; do
     
     echo "=========================================="
     echo "Processing Chromosome $chr"
@@ -663,13 +741,13 @@ for chr in "${CHR_ARRAY[@]}"; do
     
     echo "  Group file: $CHR_GROUP_FILE"
     
-    # Find all genotype files for this chromosome
+    # Find all genotype files for this chromosome in sorted order
     GENO_FILES=()
     
-    # Use the helper function to find files
+    # Use the helper function to find files in sorted order
     while IFS= read -r geno_file; do
         GENO_FILES+=("$geno_file")
-    done < <(find_genotype_file "$GENOTYPE_DIR" "$chr" "$GENO_EXT" "$CHR_PREFIX" "$CHR_PADDING" "$CHUNK_PATTERN")
+    done < <(find_genotype_files_sorted "$GENOTYPE_DIR" "$chr" "$GENO_EXT" "$CHR_PREFIX" "$CHR_PADDING" "$CHUNK_PATTERN")
     
     if [ ${#GENO_FILES[@]} -eq 0 ]; then
         echo "  ✗ No genotype files found for chromosome $chr"
@@ -678,12 +756,12 @@ for chr in "${CHR_ARRAY[@]}"; do
         continue
     fi
     
-    echo "  Found ${#GENO_FILES[@]} genotype file(s)"
+    echo "  Found ${#GENO_FILES[@]} genotype file(s) in sequential order"
     
     # Check if this chromosome has chunks
     if [ ${#GENO_FILES[@]} -gt 1 ]; then
         CHR_HAS_CHUNKS[$chr]=1
-        echo "  Chunks detected: will merge after processing" 
+        echo "  Chunks detected: will merge after processing"
     fi
     
     echo ""
@@ -691,7 +769,7 @@ for chr in "${CHR_ARRAY[@]}"; do
     # Build chromosome-specific SAIGE parameters
     SAIGE_CHR_PARAMS=$(build_saige_params "$chr")
     
-    # Process each genotype file
+    # Process each genotype file in order (chunk1, chunk2, chunk3, ...)
     for geno_file in "${GENO_FILES[@]}"; do
         
         TOTAL_JOBS=$((TOTAL_JOBS + 1))
@@ -808,7 +886,8 @@ if [ "$MERGE_CHUNKS" = "yes" ]; then
     MERGED_COUNT=0
     MERGE_FAILED=0
     
-    for chr in "${CHR_ARRAY[@]}"; do
+    # Process chromosomes in the same order
+    for chr in "${SORTED_CHR_ARRAY[@]}"; do
         # Only merge if this chromosome had chunks
         if [ "${CHR_HAS_CHUNKS[$chr]:-0}" -eq 1 ]; then
             echo "Chromosome $chr:"
@@ -838,6 +917,17 @@ if [ "$MERGE_CHUNKS" = "yes" ]; then
             echo "Chromosomes merged: $MERGED_COUNT"
             echo "Merge failures: $MERGE_FAILED"
             echo "Keep chunk files: $KEEP_CHUNK_FILES"
+            echo ""
+            echo "Merged files (in order):"
+            for chr in "${SORTED_CHR_ARRAY[@]}"; do
+                if [ "${CHR_HAS_CHUNKS[$chr]:-0}" -eq 1 ]; then
+                    combined_file="$OUTPUT_DIR/chr${chr}_combined_results.txt"
+                    if [ -f "$combined_file" ]; then
+                        lines=$(($(wc -l < "$combined_file") - 1))
+                        echo "  Chr${chr}: ${lines} results"
+                    fi
+                fi
+            done
             echo ""
         } >> "$SUMMARY_FILE"
     else
@@ -877,10 +967,13 @@ echo "Successful: $SUCCESSFUL_JOBS"
 echo "Failed: $FAILED_JOBS"
 echo ""
 if [ "$MERGE_CHUNKS" = "yes" ] && [ "${MERGED_COUNT:-0}" -gt 0 ]; then
-    echo "Merged results available:"
-    ls -1 "$OUTPUT_DIR"/chr*_combined_results.txt 2>/dev/null | while read f; do
-        lines=$(($(wc -l < "$f") - 1))
-        echo "  $(basename $f): $lines results"
+    echo "Merged results available (in chromosomal order):"
+    for chr in "${SORTED_CHR_ARRAY[@]}"; do
+        combined_file="$OUTPUT_DIR/chr${chr}_combined_results.txt"
+        if [ -f "$combined_file" ]; then
+            lines=$(($(wc -l < "$combined_file") - 1))
+            echo "  $(basename $combined_file): $lines results"
+        fi
     done
     echo ""
 fi
