@@ -37,7 +37,8 @@ fi
 if [ "$GENOME_BUILD" = "GRCh38" ]; then
     GTF_URL="ftp://ftp.ensembl.org/pub/release-${ENSEMBL_VERSION}/gtf/homo_sapiens/Homo_sapiens.GRCh38.${ENSEMBL_VERSION}.gtf.gz"
 elif [ "$GENOME_BUILD" = "GRCh37" ]; then
-    GTF_URL="ftp://ftp.ensembl.org/pub/grch37/release-${ENSEMBL_VERSION}/gtf/homo_sapiens/Homo_sapiens.GRCh37.87.gtf.gz"
+    # Filename release tag must match ENSEMBL_VERSION (directory release-N)
+    GTF_URL="ftp://ftp.ensembl.org/pub/grch37/release-${ENSEMBL_VERSION}/gtf/homo_sapiens/Homo_sapiens.GRCh37.${ENSEMBL_VERSION}.gtf.gz"
 else
     echo "Error: Build must be GRCh38 or GRCh37" >&2
     exit 1
