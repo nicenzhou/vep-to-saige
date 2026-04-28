@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Script: step6_extract_genotypes_plink2.sh
+# Script: step6_extract_genotypes_plink2a.sh
 # Description: Extract genotypes for gene regions using PLINK2a with optional chunking
-# Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix] [chunk_size]
+# Usage: step6_extract_genotypes_plink2a.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix] [chunk_size]
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ CHUNK_SIZE="${8:-0}"            # Chunk size (0 = no chunking, extract all in on
 
 if [ -z "$INPUT_DIR" ] || [ -z "$REGIONS_DIR" ]; then
     cat << 'EOF'
-Usage: step6_extract_genotypes_plink2.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix] [chunk_size]
+Usage: step6_extract_genotypes_plink2a.sh <input_dir> <regions_dir> <output_dir> [threads] [output_format] [input_format] [input_prefix] [chunk_size]
 
 Description:
   Extract genotypes for genes using PLINK2a.
@@ -79,19 +79,19 @@ Output Files (with chunking, chunk_size=20):
 
 Examples:
   # Default: all genes in one file per chromosome
-  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles
+  ./step6_extract_genotypes_plink2a.sh /data/genotypes plink_regions gene_bfiles
 
   # Extract 20 genes per chunk
-  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto chr 20
+  ./step6_extract_genotypes_plink2a.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto chr 20
 
   # Custom prefix with chunking
-  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto wgs_chr 50
+  ./step6_extract_genotypes_plink2a.sh /data/genotypes plink_regions gene_bfiles 16 bfile auto wgs_chr 50
 
   # BGEN format with 30 genes per chunk
-  ./step6_extract_genotypes_plink2.sh /data/bgen plink_regions gene_bfiles 16 bgen bgen imputed_chr 30
+  ./step6_extract_genotypes_plink2a.sh /data/bgen plink_regions gene_bfiles 16 bgen bgen imputed_chr 30
 
   # No chunking (extract all genes together)
-  ./step6_extract_genotypes_plink2.sh /data/genotypes plink_regions gene_bfiles 8 bfile auto chr 0
+  ./step6_extract_genotypes_plink2a.sh /data/genotypes plink_regions gene_bfiles 8 bfile auto chr 0
 
 Use Cases for Chunking:
   - Memory constraints: Smaller chunks use less RAM
