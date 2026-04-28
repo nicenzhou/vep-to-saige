@@ -110,7 +110,7 @@ elif [ "$PATTERN" = "non-padded" ]; then
     done
 else
     # Use provided pattern
-    mapfile -t INPUT_FILES < <(ls -1 $PATTERN 2>/dev/null | sort -V)
+    mapfile -t INPUT_FILES < <(ls -1 -- $PATTERN 2>/dev/null | sort -V)
 fi
 
 # Check if any files found
