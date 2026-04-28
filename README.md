@@ -257,6 +257,8 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + Step 2 |
 
+**Performance (recent versions):** Step **4** builds per-chromosome tables in **one pass** over `all_genes_coords.txt` (not one full scan per chromosome). Step **5** does **one `awk` per chromosome** for filter + BED + gene list (no large temp “matched” files). Step **1** stderr summaries use **awk counts + one numeric sort** per table instead of `sort | uniq -c` on every row. Step **3** “unique genes” uses **var lines only** (`NR%2==1`). Step **6** BGEN log parsing avoids GNU-only `grep -P` (portable on macOS).
+
 ### Step 1 — `step1_vep_ann_clean.sh`
 
 ```bash
@@ -297,7 +299,7 @@ Merges **`chr*_groups.txt`** in genomic order. Auto-detects **`chr1`** vs **`chr
 ./codes/step4_download_gene_coords.sh [ensembl_release] [GRCh38|GRCh37] [out_dir]
 ```
 
-Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**. Writes `all_genes_coords.txt`, per-chr `chr{n}_genes.txt`, removes downloaded GTF, then **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF file is **`Homo_sapiens.GRCh37.<release>.gtf.gz`** matching **`ensembl_release`**.
+Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**. Writes `all_genes_coords.txt`, then **splits by chromosome in a single read** of that file, removes downloaded GTF, then **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF file is **`Homo_sapiens.GRCh37.<release>.gtf.gz`** matching **`ensembl_release`**.
 
 ### Step 5 — `step5_match_genes_to_groups.sh`
 
@@ -311,7 +313,7 @@ Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**
 | `force_regen` | `no` | If `yes`, infer intervals from variant positions when symbol missing from coords |
 | `merge_regen` | `yes` | Merge recovered genes into main **`chr*_regions.txt`** vs separate **`*_recovered.txt`** |
 
-Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_genes.txt`**, **`matching_summary.txt`**, log under **`out_dir`**.
+Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_genes.txt`**, **`matching_summary.txt`**, log under **`out_dir`**. Matching and BED construction share **one pass** over each coordinate file (no per-chr temp match file).
 
 ### Step 6 — `step6_extract_genotypes_plink2a.sh`
 
@@ -510,4 +512,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 1.0.0 | Last updated: 2026-04-28*
+*Version 2.0.0 | Last updated: 2026-04-28*
