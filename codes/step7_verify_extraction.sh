@@ -153,7 +153,7 @@ echo "  Checking for chunked and non-chunked files..." >&2
         bgen)
           # Get from log or count via bgenix
           if [ -f "${BFILE}.log" ]; then
-            VARIANTS=$(grep -i "variants written" "${BFILE}.log" | grep -oP '\d+' | head -1 || echo "0")
+            VARIANTS=$(grep -i "variants written" "${BFILE}.log" | head -1 | grep -Eo '[0-9]+' | head -1 || echo "0")
           else
             VARIANTS="N/A"
           fi
@@ -258,7 +258,7 @@ echo "  Checking for chunked and non-chunked files..." >&2
             ;;
           bgen)
             if [ -f "${CHUNK_BASE}.log" ]; then
-              CHUNK_VARS=$(grep -i "variants written" "${CHUNK_BASE}.log" | grep -oP '\d+' | head -1 || echo "0")
+              CHUNK_VARS=$(grep -i "variants written" "${CHUNK_BASE}.log" | head -1 | grep -Eo '[0-9]+' | head -1 || echo "0")
             else
               CHUNK_VARS="N/A"
             fi
