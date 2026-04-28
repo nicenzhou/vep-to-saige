@@ -9,7 +9,7 @@ set -euo pipefail
 #==========================================
 # USAGE
 #==========================================
-a
+
 if [ $# -lt 2 ]; then
     cat << 'EOF'
 Usage: step2_create_gene_groups.sh <input_annotations.txt> <output_groups.txt> [annotation_filter] [priority]
