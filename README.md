@@ -2,6 +2,21 @@
 
 Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run genome-wide set-based association analysis for rare variants.
 
+## Contents
+
+- [Overview](#overview)
+- [Clone and setup](#clone-and-setup)
+- [Quick Start: Full Pipeline](#quick-start-full-pipeline)
+- [Quick Start: Alternative Workflows](#quick-start-alternative-workflows)
+- [Expected output structure](#expected-output-structure)
+- [Requirements](#requirements)
+- [Pipeline scripts (steps 1-9)](#pipeline-scripts-steps-1-9)
+- [Important notes](#important-notes)
+- [Quality Control](#quality-control)
+- [Troubleshooting](#troubleshooting)
+- [Citation](#citation)
+- [Support](#support)
+
 ## Overview
 
 This pipeline processes VEP-annotated VCF files to create gene-based variant groups and performs rare variant association testing using SAIGE-GENE. It supports:
@@ -28,11 +43,11 @@ chmod +x codes/*.sh
 
 ## Quick Start: Full Pipeline
 
-```
+```bash
 # Steps 1-3: VEP to SAIGE groups
 ./codes/step1_vep_ann_clean.sh input.vcf.gz chr1_anno.txt 4 vep_lof
 ./codes/step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
-./codes/step3_merge_and_validate_groups.sh all_genes.txt .
+./codes/step3_merge_and_validate_groups.sh all_genes_groups.txt .
 
 # Steps 4-5: Gene coordinates and region matching
 ./codes/step4_download_gene_coords.sh 115 GRCh38 gene_coords   # needs wget + network
@@ -78,7 +93,7 @@ EOF
 
 ## Quick Start: Alternative Workflows
 
-```
+```bash
 #--------------------------------------------------------------------------
 # Workflow 1: Basic gene-based analysis (no genotype extraction)
 #--------------------------------------------------------------------------
@@ -86,7 +101,7 @@ EOF
 # Steps 1-3: Create gene groups from VEP
 ./codes/step1_vep_ann_clean.sh input.vcf.gz chr1_anno.txt 4 vep_lof
 ./codes/step2_create_gene_groups.sh chr1_anno.txt chr1_groups.txt all keepall
-./codes/step3_merge_and_validate_groups.sh all_genes.txt .
+./codes/step3_merge_and_validate_groups.sh all_genes_groups.txt .
 
 # Use groups directly with your genotypes in SAIGE
 # (Skip steps 4-7 if you already have organized genotype files)
@@ -98,7 +113,7 @@ EOF
 # Steps 1-3: Create gene groups
 ./codes/step1_vep_ann_clean.sh wgs.vcf.gz wgs_anno.txt 16 vep_lof
 ./codes/step2_create_gene_groups.sh wgs_anno.txt wgs_groups.txt all keepall
-./codes/step3_merge_and_validate_groups.sh all_genes.txt .
+./codes/step3_merge_and_validate_groups.sh all_genes_groups.txt .
 
 # Steps 4-5: Gene coordinates with regeneration for missing genes
 tar -xzf gene_coords_ensembl115.tar.gz
@@ -196,7 +211,7 @@ EOF
 
 --- 
 
-## Expected output structure 
+## Expected output structure
 
 ```
 # vep-to-saige/
@@ -241,7 +256,7 @@ EOF
 ---
 
 
-## Pipeline scripts (steps 1–9)
+## Pipeline scripts (steps 1-9)
 
 Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, or **`export PATH="$PWD/codes:$PATH"`**.
 
@@ -254,10 +269,10 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 5 | `step5_match_genes_to_groups.sh` | Coordinates + groups → PLINK regions |
 | 6 | `step6_extract_genotypes_plink2a.sh` | Extract cohort genotypes per gene region |
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
-| 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + Step 2 |
+| 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + run test jobs |
 | 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results, optional QQ/Manhattan |
 
-**Performance (recent versions):** Step **4** builds per-chromosome tables in **one pass** over `all_genes_coords.txt` (not one full scan per chromosome). Step **5** does **one `awk` per chromosome** for filter + BED + gene list (no large temp “matched” files). Step **1** stderr summaries use **awk counts + one numeric sort** per table instead of `sort | uniq -c` on every row. Step **3** “unique genes” uses **var lines only** (`NR%2==1`). Step **6** BGEN log parsing avoids GNU-only `grep -P` (portable on macOS).
+**Performance (recent versions):** Step **4** streams `all_genes_coords.txt` once per build (not one full scan per chromosome). Step **5** uses **one `awk` per chromosome** for filter + BED + gene list (no huge temp match files). Steps **1**, **3**, and **6** use lighter counting/parsing (e.g. **1**: awk + one numeric sort per table; **3**: var lines only `NR%2==1`; **6**: no GNU-only `grep -P` so macOS stays portable).
 
 ### Step 1 — `step1_vep_ann_clean.sh`
 
@@ -378,7 +393,11 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 | `ensembl_build` | **`37`** or **`38`** when **`coord_source`** is **`ensembl`** |
 | `ensembl_release` | Optional Ensembl release (e.g. **`115`**) or custom REST base URL |
 
-**Plot / Cauchy env:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: one QQ + one Manhattan for all groups × all max_MAF), **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols always labeled in addition to the top‑N by *P*; case-insensitive; symbols absent from the Manhattan data are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab-separated file merged into the same symbol list; if the first row names a column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`**, that column is used; otherwise every row including the first is treated as data and column 1 is used). **`STEP9_BONFERRONI_MAF_TESTS`** (Bonferroni divisor for the green line on **`manhattan_plot.png`**, default **`3`**). **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — progressively omit the Cauchy annotation group from plots, from significance/top/summary tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** behaves like **`plots`** if **`STEP9_CAUCHY_MODE`** is unset. **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). **Ensembl REST tuning:** **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
+**Environment variables (Step 9)**
+
+- **Plots & Manhattan:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: one QQ + one Manhattan for all groups × all max_MAF). **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols labeled in addition to the top‑N by *P*; case-insensitive; missing symbols are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab file merged into that list: use column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`** if the header matches; else column 1 and the first row is data). **`STEP9_BONFERRONI_MAF_TESTS`** (green Bonferroni line on **`manhattan_plot.png`**, default **`3`**).
+- **Cauchy rows:** **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — omit the Cauchy annotation group from plots only, from tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** = **`plots`** if mode unset.
+- **Ensembl (optional coordinates):** **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). Tuning: **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
 
 **Interactive mode** also prompts for Manhattan label count and optional **extra gene labels** (comma list or path to a symbol file). Non-interactive runs use the env vars above only.
 
