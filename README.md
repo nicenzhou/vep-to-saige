@@ -236,12 +236,12 @@ EOF
 - ```wget``` — Step 4 download
 - ```plink2a``` — Step 6 extraction
 - Bash 4.0+
-- Optional: ```python3``` / ```certifi``` (Step 9 Ensembl), ```Rscript``` + ```ggplot2``` (Step 9 plots)
+- Optional: ```python3``` / ```certifi``` (Step 9 Ensembl), ```Rscript``` + ```ggplot2``` (Step 9 plots; ```ggrepel``` optional, improves Manhattan text labels)
 
 ---
 
 
-## Pipeline scripts (steps 1–8)
+## Pipeline scripts (steps 1–9)
 
 Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, or **`export PATH="$PWD/codes:$PATH"`**.
 
@@ -255,6 +255,7 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 6 | `step6_extract_genotypes_plink2a.sh` | Extract cohort genotypes per gene region |
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + Step 2 |
+| 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results, optional QQ/Manhattan |
 
 **Performance (recent versions):** Step **4** builds per-chromosome tables in **one pass** over `all_genes_coords.txt` (not one full scan per chromosome). Step **5** does **one `awk` per chromosome** for filter + BED + gene list (no large temp “matched” files). Step **1** stderr summaries use **awk counts + one numeric sort** per table instead of `sort | uniq -c` on every row. Step **3** “unique genes” uses **var lines only** (`NR%2==1`). Step **6** BGEN log parsing avoids GNU-only `grep -P` (portable on macOS).
 
@@ -345,9 +346,9 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 
 ### Step 9: Post-Analysis
 
-**Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, etc.). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
+**Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, `chr*_chunk*_results.txt`, or `chr*_all_results.txt`). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
 
-**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `OPERATIONS`, `PRESET`, etc.); runs `step9_analyze_results.sh` from the same directory. Example:
+**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `STEP9_SCRIPT`, `OPERATIONS`, `PRESET`, etc.); runs `step9_analyze_results.sh` (same repo folder by default). Example:
 
 ```bash
 chmod +x codes/step9_noninteractive_example.sh
@@ -368,19 +369,24 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 | Flag / positional | Meaning |
 |-------------------|---------|
 | `--results-dir` etc. | Results folder (same as **`STEP9_RESULTS_DIR`**) |
-| `OPERATIONS` | `+`-separated ops or presets **`standard`** / **`full`** / **`quick`** |
-| `gene_coords_file` | Optional coordinate TSV for Manhattan |
-| `position_mode` | **`start`**, **`end`**, **`midpoint`** |
-| `coord_source` | **`sequence`** or **`ensembl`** when no coords file |
-| `ensembl_build` | **`37`** or **`38`** with **`ensembl`** |
+| `OPERATIONS` | One preset (**`standard`**, **`full`**, **`quick`**) or **`+`‑separated** operations (e.g. `mergeall+findsig+top50`) |
+| `gene_coords_file` | Optional coordinate TSV for Manhattan (chrom, start, end, gene, …) |
+| `position_mode` | Gene position on chromosome: **`start`**, **`end`**, **`midpoint`** |
+| `filter_group` | Optional; restrict derived tables/plots to annotation group(s) (e.g. `lof` or `lof;missense`) |
+| `filter_maf` | Optional; e.g. **`0.01`** keeps tests with max_MAF ≤ 0.01 |
+| `coord_source` | **`sequence`** (default) or **`ensembl`** when no gene coordinate file is given |
+| `ensembl_build` | **`37`** or **`38`** when **`coord_source`** is **`ensembl`** |
+| `ensembl_release` | Optional Ensembl release (e.g. **`115`**) or custom REST base URL |
 
-**Plot env:** **`STEP9_PLOT_UNFILTERED`**, **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_FDR_ALPHA`**, **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). **`STEP9_BONFERRONI_MAF_TESTS`** — divisor for the stricter Bonferroni line on Manhattan plots (default **`3`**). **Ensembl REST tuning:** **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
+**Plot / Cauchy env:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: one QQ + one Manhattan for all groups × all max_MAF), **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols always labeled in addition to the top‑N by *P*; case-insensitive; symbols absent from the Manhattan data are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab-separated file merged into the same symbol list; if the first row names a column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`**, that column is used; otherwise every row including the first is treated as data and column 1 is used). **`STEP9_BONFERRONI_MAF_TESTS`** (Bonferroni divisor for the green line on **`manhattan_plot.png`**, default **`3`**). **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — progressively omit the Cauchy annotation group from plots, from significance/top/summary tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** behaves like **`plots`** if **`STEP9_CAUCHY_MODE`** is unset. **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). **Ensembl REST tuning:** **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
 
-**Presets (abbrev.):** **`standard`** → mergeall, listgroups, findsig, top50, groupsum, qq/mandata, **makeplots**, fullsum. **`full`** / **`quick`** expand or shorten that chain (see script).
+**Interactive mode** also prompts for Manhattan label count and optional **extra gene labels** (comma list or path to a symbol file). Non-interactive runs use the env vars above only.
 
-**Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** (= qq + man + **makeplots**).
+**Presets (actual chain in script):** **`standard`** — detect_files, mergeall, listgroups, findsig, top50, groupsum, makeplots, fullsum. **`quick`** — detect_files, mergeall, listgroups, top50, makeplots, fullsum (no findsig or groupsum). **`full`** — detect_files, mergechrom, mergeall, listgroups, findsig, top10, top50, top100, chromsum, groupsum, makeplots, fullsum.
 
-**Artifacts:** `all_results.txt`, significance tiers, `top*_genes.txt`, `qq_plot*.png`, `manhattan_plot*_bonferroni.png` / `manhattan_plot*_fdr.png` (and legacy `manhattan_plot.png` / `manhattan_plot_fdr.png`), `analysis_summary.txt`; helpers `.gene_coords_lookup.txt`, `.step9_generate_plots.R`.
+**Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** and **`makeplots`** are **equivalent** (both call the same code path: refresh `qq_plot_data.txt` / `manhattan_plot_data.txt` and write PNGs and group statistics when R is available).
+
+**Artifacts:** `all_results.txt`, significance-tier files, `top*_genes.txt`, **`qq_plot_data.txt`**, **`manhattan_plot_data.txt`**, **`qq_plot.png`**, **`manhattan_plot.png`** (Bonferroni −log10 *P*), **`group_statistics.txt`** (from makeplots when R runs), `analysis_summary.txt`; helpers `.all_results_no_cauchy.txt` (when Cauchy is omitted from tables), `.gene_coords_lookup.txt`, **`.step9_generate_plots.R`** (written under the results directory when plot generation runs).
 
 ```bash
 # Interactive (menu + prompts)
