@@ -519,4 +519,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.0.2 | Last updated: 2026-05-01*
+*Version 2.0.0 | Last updated: 2026-05-01*
