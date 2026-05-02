@@ -48,7 +48,16 @@ ENSEMBL_RELEASE="${ENSEMBL_RELEASE:-}"      # optional e.g. 115, or full REST UR
 # Common STEP9_* overrides (uncomment or export before running)
 # export STEP9_PLOT_UNFILTERED=1
 # export STEP9_MANHATTAN_LABEL_TOP_N=10
-# export STEP9_MANHATTAN_FDR_ALPHA=0.1
+# export STEP9_MANHATTAN_LABEL_EXTRA=PCSK9,LDLR,APOB
+# export STEP9_MANHATTAN_LABEL_EXTRA_FILE=/path/to/gene_list.tsv
+# Cauchy rows (all_results.txt is never modified; .all_results_no_cauchy.txt is built when needed):
+#   STEP9_CAUCHY_MODE=off|plots|pipeline|full
+#     off       — keep Cauchy everywhere
+#     plots     — omit from QQ/Manhattan/Bonferroni gene count only
+#     pipeline  — also omit from findsig/top/chromsum/groupsum/listgroups
+#     full      — also omit Cauchy from full summary report totals
+# export STEP9_CAUCHY_MODE=pipeline
+# export STEP9_EXCLUDE_CAUCHY=1   # legacy: same as plots if STEP9_CAUCHY_MODE is unset
 # export STEP9_BONFERRONI_MAF_TESTS=3
 # export STEP9_ENSEMBL_BATCH_SIZE=500
 # export STEP9_ENSEMBL_PARALLEL=4
@@ -142,6 +151,7 @@ echo "RESULTS_DIR:   ${RESULTS_DIR}"
 echo "OPERATIONS:    ${OPERATIONS}"
 echo "POSITION_MODE: ${POSITION_MODE}"
 echo "COORD_SOURCE:  ${COORD_SOURCE}"
+echo "STEP9_CAUCHY_MODE: ${STEP9_CAUCHY_MODE:-off}  (export STEP9_CAUCHY_MODE or legacy STEP9_EXCLUDE_CAUCHY=1)"
 echo ""
 
 if [ "${VERBOSE:-0}" = "1" ]; then

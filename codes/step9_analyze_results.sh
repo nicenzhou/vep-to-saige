@@ -72,6 +72,132 @@ step9_prompt_is_yes() {
     esac
 }
 
+# Cauchy rows: modes are cumulative — plots ⊂ pipeline ⊂ full (summary totals).
+# off: keep everywhere. plots: QQ/Manhattan/Bonferroni Ngenes only.
+# pipeline: also omit Cauchy from listgroups, findsig*, topgenes, chromsum, groupsum; fullsum totals still include Cauchy.
+# full: same as pipeline plus full summary report counts omit Cauchy. all_results.txt is never modified.
+step9_cauchy_exclude_plots() {
+    case "${STEP9_CAUCHY_MODE:-off}" in
+        plots|pipeline|full) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+step9_cauchy_exclude_pipeline_tables() {
+    case "${STEP9_CAUCHY_MODE:-off}" in
+        pipeline|full) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+step9_cauchy_exclude_summary_totals() {
+    [ "${STEP9_CAUCHY_MODE:-off}" = "full" ]
+}
+
+step9_ensure_no_cauchy_file() {
+    head -1 "$OUTPUT_DIR/all_results.txt" > "$OUTPUT_DIR/.all_results_no_cauchy.txt"
+    tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -F'\t' 'tolower($gcol) != "cauchy"' >> "$OUTPUT_DIR/.all_results_no_cauchy.txt"
+}
+
+# After get_columns on all_results.txt — sets STEP9_TABLE_SRC for significance/top/group/list ops.
+step9_resolve_analysis_table_src() {
+    STEP9_TABLE_SRC="$OUTPUT_DIR/all_results.txt"
+    if step9_cauchy_exclude_pipeline_tables; then
+        step9_ensure_no_cauchy_file
+        STEP9_TABLE_SRC="$OUTPUT_DIR/.all_results_no_cauchy.txt"
+    fi
+}
+
+# Per-chromosome file body rows (optional Cauchy omission for chromosome_summary).
+step9_chr_rows_for_summary() {
+    local chr_file="$1"
+    if step9_cauchy_exclude_pipeline_tables; then
+        get_columns "$chr_file" >/dev/null 2>&1 || true
+        tail -n +2 "$chr_file" | awk -v gcol="$GROUPCOL" -F'\t' 'tolower($gcol) != "cauchy"'
+    else
+        tail -n +2 "$chr_file"
+    fi
+}
+
+step9_normalize_cauchy_mode_from_env() {
+    local raw="${STEP9_CAUCHY_MODE:-}"
+    if [ -z "$raw" ] && [ "${STEP9_EXCLUDE_CAUCHY:-0}" = "1" ]; then
+        raw=plots
+    fi
+    raw=$(printf '%s' "${raw:-off}" | tr '[:upper:]' '[:lower:]')
+    case "$raw" in
+        ''|0|off|none|false|no)
+            STEP9_CAUCHY_MODE=off
+            ;;
+        1)
+            STEP9_CAUCHY_MODE=off
+            ;;
+        2|plots|plot|visualization)
+            STEP9_CAUCHY_MODE=plots
+            ;;
+        3|pipeline|analysis|sig|significance)
+            STEP9_CAUCHY_MODE=pipeline
+            ;;
+        4|full|all|everything|complete)
+            STEP9_CAUCHY_MODE=full
+            ;;
+        *)
+            STEP9_CAUCHY_MODE=off
+            ;;
+    esac
+    if [ "$STEP9_CAUCHY_MODE" != "off" ]; then
+        STEP9_EXCLUDE_CAUCHY=1
+    else
+        STEP9_EXCLUDE_CAUCHY=0
+    fi
+    export STEP9_CAUCHY_MODE STEP9_EXCLUDE_CAUCHY
+}
+
+# Merge STEP9_MANHATTAN_LABEL_EXTRA (comma-separated symbols) with symbols read from
+# STEP9_MANHATTAN_LABEL_EXTRA_FILE (tab; column Gene, Symbol, gene_symbol, or HGNC; else first column).
+step9_resolve_manhattan_label_extra_for_r() {
+    local merged="${STEP9_MANHATTAN_LABEL_EXTRA:-}"
+    merged=$(printf '%s' "$merged" | tr -d '\r')
+    if [ -n "${STEP9_MANHATTAN_LABEL_EXTRA_FILE:-}" ] && [ -f "${STEP9_MANHATTAN_LABEL_EXTRA_FILE}" ]; then
+        local file_csv
+        file_csv=$(awk -F'\t' '
+            NR == 1 {
+                c = 0
+                for (i = 1; i <= NF; i++) {
+                    li = tolower($i)
+                    gsub(/\r/, "", li)
+                    if (li ~ /^(gene|symbol|gene_symbol|hgnc)$/) {
+                        c = i
+                        break
+                    }
+                }
+                if (c > 0) next
+                c = 1
+                v = $c
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+                gsub(/\r/, "", v)
+                if (v != "") print v
+                next
+            }
+            {
+                if (c < 1) c = 1
+                v = $c
+                gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+                gsub(/\r/, "", v)
+                if (v != "") print v
+            }
+        ' "${STEP9_MANHATTAN_LABEL_EXTRA_FILE}" | paste -sd, -)
+        if [ -n "$file_csv" ]; then
+            if [ -n "$merged" ]; then
+                merged="${merged},${file_csv}"
+            else
+                merged="$file_csv"
+            fi
+        fi
+    fi
+    export STEP9_MANHATTAN_LABEL_EXTRA="$merged"
+}
+
 print_startup_banner() {
     echo "=========================================="
     echo "SAIGE-GENE Results Analysis Tool"
@@ -90,6 +216,12 @@ ENSEMBL_BUILD="38"        # Options: 37, 38
 ENSEMBL_RELEASE=""        # Optional release number (e.g., 115)
 FILTER_GROUP=""  # Filter by specific annotation group
 FILTER_MAF=""    # Filter by max_MAF threshold
+
+# Cauchy handling: STEP9_CAUCHY_MODE=off|plots|pipeline|full (see menu / step9_normalize_cauchy_mode_from_env).
+# Legacy: STEP9_EXCLUDE_CAUCHY=1 maps to plots-only.
+STEP9_CAUCHY_MODE="${STEP9_CAUCHY_MODE:-off}"
+STEP9_EXCLUDE_CAUCHY="${STEP9_EXCLUDE_CAUCHY:-0}"
+STEP9_TABLE_SRC=""
 
 # Plot outputs (makeplots / plotdata): set via STEP9_PLOT_UNFILTERED or interactive prompts (see Main Execution).
 PLOT_DO_UNFILTERED=""
@@ -878,7 +1010,11 @@ show_menu() {
     echo "  STEP9_PLOT_UNFILTERED=1|0   include qq + manhattan (all groups, all max_MAF; default 1)"
     echo "  STEP9_BONFERRONI_MAF_TESTS=N   Manhattan Bonferroni divisor for 0.05/(genes x N), default 3"
     echo "  STEP9_MANHATTAN_LABEL_TOP_N=N   label top N genes on Manhattan (default 10; interactive can raise)"
-    echo "  STEP9_MANHATTAN_FDR_ALPHA=N      BH-FDR alpha for manhattan_*_fdr.png (default 0.1)"
+    echo "  STEP9_CAUCHY_MODE=off|plots|pipeline|full   Cauchy rows (all_results.txt unchanged):"
+    echo "    plots=no Cauchy in QQ/Manhattan/Bonferroni Ngenes"
+    echo "    pipeline=also omit from findsig/top/chromsum/groupsum/listgroups"
+    echo "    full=also omit Cauchy from full summary report totals"
+    echo "  STEP9_EXCLUDE_CAUCHY=1   legacy alias for plots-only (if STEP9_CAUCHY_MODE unset)"
     echo ""
     echo "Arguments:"
     echo "  1. Operations (required in non-interactive mode)"
@@ -1030,15 +1166,16 @@ op_listgroups() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
-    detect_groups "$OUTPUT_DIR/all_results.txt"
+    detect_groups "$STEP9_TABLE_SRC"
     
     # Save to file
     {
         echo "Annotation Group Summary"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        tail -n +2 "$OUTPUT_DIR/all_results.txt" | cut -f"$GROUPCOL" | sort | uniq -c | \
+        tail -n +2 "$STEP9_TABLE_SRC" | cut -f"$GROUPCOL" | sort | uniq -c | \
             awk '{printf "%-30s %8d genes\n", $2, $1}'
     } > "$OUTPUT_DIR/annotation_groups.txt"
     
@@ -1170,13 +1307,14 @@ op_findsig() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     # Apply filters if specified
-    WORK_FILE="$OUTPUT_DIR/all_results.txt"
+    WORK_FILE="$STEP9_TABLE_SRC"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
-        apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
+        apply_filters "$STEP9_TABLE_SRC" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
     
@@ -1224,13 +1362,14 @@ op_findgws() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     # Apply filters if specified
-    WORK_FILE="$OUTPUT_DIR/all_results.txt"
+    WORK_FILE="$STEP9_TABLE_SRC"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
-        apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
+        apply_filters "$STEP9_TABLE_SRC" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
     
@@ -1258,13 +1397,14 @@ op_findsug() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     # Apply filters if specified
-    WORK_FILE="$OUTPUT_DIR/all_results.txt"
+    WORK_FILE="$STEP9_TABLE_SRC"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
-        apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
+        apply_filters "$STEP9_TABLE_SRC" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
     
@@ -1292,13 +1432,14 @@ op_findnom() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     # Apply filters if specified
-    WORK_FILE="$OUTPUT_DIR/all_results.txt"
+    WORK_FILE="$STEP9_TABLE_SRC"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
-        apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
+        apply_filters "$STEP9_TABLE_SRC" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
     
@@ -1329,13 +1470,14 @@ op_topgenes() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     # Apply filters if specified
-    WORK_FILE="$OUTPUT_DIR/all_results.txt"
+    WORK_FILE="$STEP9_TABLE_SRC"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
-        apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
+        apply_filters "$STEP9_TABLE_SRC" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
     
@@ -1392,11 +1534,11 @@ op_chromsum() {
             if [ -n "$CHR_FILE" ] && [ -f "$CHR_FILE" ]; then
                 get_columns "$CHR_FILE" > /dev/null 2>&1
                 
-                TOTAL=$(tail -n +2 "$CHR_FILE" | wc -l)
-                GWS=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
-                SUG=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
-                NOM=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
-                P001=$(tail -n +2 "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
+                TOTAL=$(step9_chr_rows_for_summary "$CHR_FILE" | wc -l)
+                GWS=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
+                SUG=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
+                NOM=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
+                P001=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
                 
                 printf "%-5s %-12s %-12s %-12s %-12s %-12s\n" \
                     "$chr" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
@@ -1426,6 +1568,7 @@ op_groupsum() {
     fi
     
     get_columns "$OUTPUT_DIR/all_results.txt"
+    step9_resolve_analysis_table_src
     echo ""
     
     {
@@ -1434,12 +1577,12 @@ op_groupsum() {
         echo "----------------------------------------------------------------------------------------"
         
         # Get unique groups
-        tail -n +2 "$OUTPUT_DIR/all_results.txt" | cut -f"$GROUPCOL" | sort -u | while read -r group; do
-            TOTAL=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -v grp="$group" -F'\t' '$gcol == grp' | wc -l)
-            GWS=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
-            SUG=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
-            NOM=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
-            P001=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
+        tail -n +2 "$STEP9_TABLE_SRC" | cut -f"$GROUPCOL" | sort -u | while read -r group; do
+            TOTAL=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v grp="$group" -F'\t' '$gcol == grp' | wc -l)
+            GWS=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
+            SUG=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
+            NOM=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
+            P001=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
             
             printf "%-30s %-12s %-12s %-12s %-12s %-12s\n" \
                 "$group" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
@@ -1470,13 +1613,19 @@ op_fullsum() {
     get_columns "$OUTPUT_DIR/all_results.txt"
     echo ""
     
-    TOTAL_GENES=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | wc -l)
+    local SUM_SRC="$OUTPUT_DIR/all_results.txt"
+    if step9_cauchy_exclude_summary_totals; then
+        step9_ensure_no_cauchy_file
+        SUM_SRC="$OUTPUT_DIR/.all_results_no_cauchy.txt"
+    fi
+    
+    TOTAL_GENES=$(tail -n +2 "$SUM_SRC" | wc -l)
     
     # Count significant results
-    GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
-    SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
-    NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
-    P001_COUNT=$(tail -n +2 "$OUTPUT_DIR/all_results.txt" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
+    GWS_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l)
+    SUG_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l)
+    NOM_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l)
+    P001_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l)
     
     {
         echo "=========================================="
@@ -1485,6 +1634,16 @@ op_fullsum() {
         echo "Analysis Date: $(date)"
         echo "Results Directory: $OUTPUT_DIR"
         echo ""
+        
+        if step9_cauchy_exclude_pipeline_tables && ! step9_cauchy_exclude_summary_totals; then
+            echo "Note: Cauchy rows are omitted from exported significance/top/group/chromosome tables."
+            echo "      Totals in this section still include Cauchy (mode=pipeline)."
+            echo ""
+        fi
+        if step9_cauchy_exclude_summary_totals; then
+            echo "Note: All counts below exclude the Cauchy annotation group (mode=full)."
+            echo ""
+        fi
         
         if [ -n "$FILTER_GROUP" ]; then
             echo "Filter Applied: Annotation Group = '$FILTER_GROUP'"
@@ -1510,7 +1669,7 @@ op_fullsum() {
         
         echo "Annotation Groups:"
         echo "----------------------------------------"
-        tail -n +2 "$OUTPUT_DIR/all_results.txt" | cut -f"$GROUPCOL" | sort | uniq -c | \
+        tail -n +2 "$SUM_SRC" | cut -f"$GROUPCOL" | sort | uniq -c | \
             awk '{printf "  %-30s %8d genes\n", $2, $1}'
         echo ""
         
@@ -1518,7 +1677,7 @@ op_fullsum() {
         echo "----------------------------------------"
         
         if [ -f "$OUTPUT_DIR/all_results.txt" ]; then
-            echo "  ✓ all_results.txt"
+            echo "  ✓ all_results.txt (complete merged results on disk)"
         fi
         if [ -f "$OUTPUT_DIR/all_results_annotated.txt" ]; then
             echo "  ✓ all_results_annotated.txt (with coordinates)"
@@ -1585,9 +1744,17 @@ op_qqdata() {
         echo ""
     fi
     
-    TOTAL_GENES=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0' | wc -l)
+    step9_tail_results_body() {
+        if step9_cauchy_exclude_plots; then
+            tail -n +2 "$WORK_FILE" | awk -v gcol="$GROUPCOL" -F'\t' 'tolower($gcol) != "cauchy"'
+        else
+            tail -n +2 "$WORK_FILE"
+        fi
+    }
     
-    tail -n +2 "$WORK_FILE" | \
+    TOTAL_GENES=$(step9_tail_results_body | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0' | wc -l)
+    
+    step9_tail_results_body | \
         awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
         sort -g | \
         awk -v total="$TOTAL_GENES" 'BEGIN {
@@ -1604,7 +1771,7 @@ op_qqdata() {
     echo ""
     
     # Calculate genomic inflation factor (lambda)
-    LAMBDA=$(tail -n +2 "$WORK_FILE" | \
+    LAMBDA=$(step9_tail_results_body | \
         awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
         sort -g | \
         awk 'BEGIN{n=0} {a[n++]=$1} END{
@@ -1648,6 +1815,16 @@ op_mandata() {
         echo ""
     fi
     
+    _mand_tail() {
+        local _wf="$1"
+        local _g="$2"
+        if step9_cauchy_exclude_plots; then
+            tail -n +2 "$_wf" | awk -v gcol="$_g" -F'\t' 'tolower($gcol) != "cauchy"'
+        else
+            tail -n +2 "$_wf"
+        fi
+    }
+    
     # Check if we have annotated file with coordinates
     if [ -f "$OUTPUT_DIR/all_results_annotated.txt" ] && [ -f "$OUTPUT_DIR/.gene_coords_lookup.txt" ]; then
         echo "  Using gene coordinates from annotation file"
@@ -1676,7 +1853,7 @@ op_mandata() {
                 filter_cmd="$filter_cmd && \$$adj_mafcol != \"NA\" && \$$adj_mafcol <= $FILTER_MAF"
             fi
             
-            tail -n +2 "$ANNO_WORK_FILE" | awk -F'\t' "$filter_cmd" >> "$OUTPUT_DIR/all_results_annotated_filtered.txt"
+            _mand_tail "$ANNO_WORK_FILE" "$adj_groupcol" | awk -F'\t' "$filter_cmd" >> "$OUTPUT_DIR/all_results_annotated_filtered.txt"
             ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated_filtered.txt"
         fi
         
@@ -1686,7 +1863,7 @@ op_mandata() {
         _maf_a=0
         [ -n "${MAFCOL:-}" ] && _maf_a=$((MAFCOL + 2))
 
-        tail -n +2 "$ANNO_WORK_FILE" | \
+        _mand_tail "$ANNO_WORK_FILE" "$((GROUPCOL+2))" | \
             awk -v rcol="$((REGIONCOL+2))" -v gcol="$((GROUPCOL+2))" -v pcol="$((PCOL+2))" -v mafc="$_maf_a" -F'\t' '
             $pcol != "NA" && $pcol != "" && $pcol > 0 {
                 chr = $1
@@ -1736,7 +1913,7 @@ op_mandata() {
         
         if [ "$HAS_CHR_COL" = true ]; then
             # Use CHR column from data
-            tail -n +2 "$WORK_FILE" | \
+            _mand_tail "$WORK_FILE" "$adj_groupcol" | \
                 awk -v chrcol="$CHRCOL" -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
                 $pcol != "NA" && $pcol != "" && $pcol > 0 {
                     chr = $chrcol
@@ -1762,7 +1939,7 @@ op_mandata() {
                 }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
         else
             # No CHR info, extract from region or use NA
-            tail -n +2 "$WORK_FILE" | \
+            _mand_tail "$WORK_FILE" "$adj_groupcol" | \
                 awk -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
                 $pcol != "NA" && $pcol != "" && $pcol > 0 {
                     gene = $rcol
@@ -1833,8 +2010,10 @@ op_makeplots() {
     }
 
     # Unique genes in merged results (Region column), for Manhattan Bonferroni thresholds
-    N_GENES_MERGED=$(awk -F'\t' -v rc="$REGIONCOL" '
-      NR > 1 && rc >= 1 && rc <= NF {
+    _xc_n_genes=0
+    step9_cauchy_exclude_plots && _xc_n_genes=1
+    N_GENES_MERGED=$(awk -F'\t' -v rc="$REGIONCOL" -v gc="$GROUPCOL" -v xc="$_xc_n_genes" '
+      NR > 1 && rc >= 1 && rc <= NF && (xc + 0 != 1 || tolower($gc) != "cauchy") {
         r = $rc
         if (r == "" || r == "NA") next
         if (r ~ /:/) {
@@ -1868,20 +2047,21 @@ op_makeplots() {
     export STEP9_MANHATTAN_LABEL_TOP_N="$MANHATTAN_LABEL_TOP_N"
     echo "  Manhattan gene labels (top by P): $MANHATTAN_LABEL_TOP_N"
 
-    MANHATTAN_FDR_ALPHA="${STEP9_MANHATTAN_FDR_ALPHA:-0.1}"
     if [ "$INTERACTIVE" = true ]; then
-        echo "  Manhattan: two PNGs (Bonferroni thresholds + BH-FDR threshold)."
-        read -r -p "  BH-FDR significance alpha [${MANHATTAN_FDR_ALPHA}]: " FA_IN
-        if [ -n "${FA_IN:-}" ]; then
-            if awk -v a="$FA_IN" 'BEGIN { exit !(a > 0 && a <= 1) }'; then
-                MANHATTAN_FDR_ALPHA="$FA_IN"
+        echo "  Optional: also label specific genes (comma list: PCSK9,LDLR) or path to a tab file (column Gene, Symbol, or first column)."
+        read -r -p "  Extra Manhattan gene labels [empty=none]: " ML_EXTRA_IN
+        if [ -n "${ML_EXTRA_IN:-}" ]; then
+            if [ -f "$ML_EXTRA_IN" ]; then
+                STEP9_MANHATTAN_LABEL_EXTRA_FILE="$ML_EXTRA_IN"
             else
-                echo "  (alpha must be in (0,1]; keeping ${MANHATTAN_FDR_ALPHA})"
+                STEP9_MANHATTAN_LABEL_EXTRA="$ML_EXTRA_IN"
             fi
         fi
     fi
-    export STEP9_MANHATTAN_FDR_ALPHA="$MANHATTAN_FDR_ALPHA"
-    echo "  Manhattan BH-FDR alpha (second PNG): $MANHATTAN_FDR_ALPHA"
+    step9_resolve_manhattan_label_extra_for_r
+    if [ -n "${STEP9_MANHATTAN_LABEL_EXTRA:-}" ]; then
+        echo "  Manhattan extra labels (union with top-by-P): ${STEP9_MANHATTAN_LABEL_EXTRA}"
+    fi
 
     if [ "$PLOT_DO_UNFILTERED" != "1" ]; then
         echo "  Note: Unfiltered plot mode was off; enabling single Manhattan/QQ (all groups, all max_MAF)."
@@ -1924,17 +2104,40 @@ plot_qq <- function(inpath, pngpath, mtitle) {
   if (is.null(qq_data) || nrow(qq_data) == 0) {
     return(invisible(FALSE))
   }
-  png(pngpath, width = 1000, height = 1000, res = 150)
-  graphics::par(bg = "white", col.axis = "gray25", col.lab = "gray20")
-  plot(
-    qq_data$Expected_log10P, qq_data$Observed_log10P,
-    xlab = expression(-log[10](Expected~P)),
-    ylab = expression(-log[10](Observed~P)),
-    main = mtitle,
-    pch = 20, cex = 0.8, col = rgb(0, 0, 0, 0.5)
-  )
-  abline(0, 1, col = "red", lwd = 2)
-  safe_dev_off()
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    gg <- ggplot2::ggplot(qq_data, ggplot2::aes(
+      x = Expected_log10P, y = Observed_log10P
+    )) +
+      ggplot2::geom_point(alpha = 0.45, size = 1.1, color = "gray25") +
+      ggplot2::geom_abline(intercept = 0, slope = 1, color = "red", linewidth = 0.75) +
+      ggplot2::coord_equal() +
+      ggplot2::labs(
+        title = mtitle,
+        x = expression(-log[10](Expected~P)),
+        y = expression(-log[10](Observed~P))
+      ) +
+      ggplot2::theme_bw(base_size = 13) +
+      ggplot2::theme(
+        panel.grid.major = ggplot2::element_line(colour = "grey85", linewidth = 0.35),
+        panel.grid.minor = ggplot2::element_line(colour = "grey92", linewidth = 0.25)
+      )
+    png(pngpath, width = 1000, height = 1000, res = 150)
+    print(gg)
+    safe_dev_off()
+  } else {
+    png(pngpath, width = 1000, height = 1000, res = 150)
+    graphics::par(bg = "white", col.axis = "gray25", col.lab = "gray20")
+    plot(
+      qq_data$Expected_log10P, qq_data$Observed_log10P,
+      xlab = expression(-log[10](Expected~P)),
+      ylab = expression(-log[10](Observed~P)),
+      main = mtitle,
+      pch = 20, cex = 0.8, col = rgb(0, 0, 0, 0.5),
+      panel.first = graphics::grid(col = "gray90", lty = "dotted")
+    )
+    abline(0, 1, col = "red", lwd = 2)
+    safe_dev_off()
+  }
   invisible(TRUE)
 }
 
@@ -1944,7 +2147,6 @@ plot_man <- function(
   mtitle,
   tag,
   n_genes_merged = NA_integer_,
-  mt_mode = NULL,
   write_group_stats = TRUE
 ) {
   if (!file.exists(inpath)) {
@@ -2060,61 +2262,24 @@ plot_man <- function(
     }, character(1))
   }
 
-  if (!is.null(mt_mode) && nzchar(as.character(mt_mode))) {
-    use_fdr <- tolower(trimws(as.character(mt_mode))) %in% c("fdr", "bh")
-  } else {
-    mt_raw <- tolower(trimws(Sys.getenv("STEP9_MANHATTAN_MT_METHOD", "bonferroni")))
-    use_fdr <- mt_raw %in% c("fdr", "bh")
+  parse_extra_genes <- function(s) {
+    if (!nzchar(s)) return(character(0))
+    v <- trimws(strsplit(s, ",", fixed = TRUE)[[1]])
+    v[nzchar(v)]
   }
-  fdr_alpha <- suppressWarnings(as.numeric(Sys.getenv("STEP9_MANHATTAN_FDR_ALPHA", "0.1")))
-  if (!is.finite(fdr_alpha) || fdr_alpha <= 0 || fdr_alpha > 1) {
-    fdr_alpha <- 0.1
+  extra_syms <- toupper(parse_extra_genes(Sys.getenv("STEP9_MANHATTAN_LABEL_EXTRA", "")))
+  man$Gene_u <- toupper(as.character(man$Gene))
+  m_ord <- man[order(man$Pvalue), , drop = FALSE]
+  top_df <- head(m_ord, min(as.integer(label_n), nrow(m_ord)))
+  label_df <- top_df
+  if (length(extra_syms) > 0) {
+    exdf <- man[man$Gene_u %in% extra_syms, , drop = FALSE]
+    if (nrow(exdf) > 0) {
+      label_df <- unique(rbind(top_df, exdf))
+    }
   }
 
-  m_tests <- nrow(man)
-  bh_crit_p <- NA_real_
-  y_fdr <- NA_real_
-  y_fdr_weak <- NA_real_
-  n_fdr_sig <- 0L
-  if (use_fdr && m_tests >= 1L) {
-    pv <- man$Pvalue
-    q_bh <- stats::p.adjust(pv, "BH")
-    n_fdr_sig <- as.integer(sum(q_bh <= fdr_alpha, na.rm = TRUE))
-    sig_ok <- !is.na(q_bh) & q_bh <= fdr_alpha
-    if (any(sig_ok)) {
-      y_fdr_weak <- -log10(max(pv[sig_ok], na.rm = TRUE))
-    }
-    ps <- sort(pv)
-    mlen <- length(ps)
-    thr <- (seq_len(mlen) / mlen) * fdr_alpha
-    ok <- ps <= thr
-    if (any(ok)) {
-      k <- max(which(ok))
-      bh_crit_p <- ps[k]
-      y_fdr <- -log10(bh_crit_p)
-    }
-  }
-  fdr_line1 <- sprintf("BH-FDR (Benjamini-Hochberg): %d plotted tests, alpha=%g", m_tests, fdr_alpha)
-  fdr_line2 <- if (!use_fdr) {
-    ""
-  } else if (is.na(bh_crit_p)) {
-    sprintf("No BH rejection gate at alpha=%g (no dashed line).", fdr_alpha)
-  } else {
-    weak_extra <- ""
-    if (is.finite(y_fdr_weak) && (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)) {
-      weak_extra <- sprintf(" Solid purple: weakest FDR-significant hit −log10=%.3f.", y_fdr_weak)
-    }
-    sprintf(
-      "Dashed purple: BH gate −log10=%.3f (%d tests with BH q<=%g).%s",
-      y_fdr, n_fdr_sig, fdr_alpha, weak_extra
-    )
-  }
-
-  corner_txt <- if (!use_fdr) {
-    paste(bonf_line1, bonf_line2, sep = "\n")
-  } else {
-    paste(fdr_line1, fdr_line2, sep = "\n")
-  }
+  corner_txt <- paste(bonf_line1, bonf_line2, sep = "\n")
 
   if (requireNamespace("ggplot2", quietly = TRUE)) {
     m <- man
@@ -2129,31 +2294,9 @@ plot_man <- function(
         ggplot2::geom_vline(xintercept = chr_vlines, colour = "grey88", linewidth = 0.35)
     }
     gg <- gg +
-      ggplot2::geom_point(alpha = 0.55, size = 0.85, stroke = 0.25)
-
-    if (!use_fdr) {
-      gg <- gg +
-        ggplot2::geom_hline(yintercept = y_bonf_gene, color = "#E69F00", size = 0.55, linetype = "dashed") +
-        ggplot2::geom_hline(yintercept = y_bonf_maf, color = "#009E73", size = 0.55, linetype = "dashed")
-    } else {
-      if (is.finite(y_fdr)) {
-        gg <- gg +
-          ggplot2::geom_hline(yintercept = y_fdr, color = "#7570B3", size = 0.55, linetype = "dashed")
-      }
-      if (
-        is.finite(y_fdr_weak) &&
-          (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)
-      ) {
-        gg <- gg +
-          ggplot2::geom_hline(
-            yintercept = y_fdr_weak,
-            color = "#542788",
-            size = 0.5,
-            linetype = "solid",
-            alpha = 0.9
-          )
-      }
-    }
+      ggplot2::geom_point(alpha = 0.55, size = 0.85, stroke = 0.25) +
+      ggplot2::geom_hline(yintercept = y_bonf_gene, color = "#E69F00", size = 0.55, linetype = "dashed") +
+      ggplot2::geom_hline(yintercept = y_bonf_maf, color = "#009E73", size = 0.55, linetype = "dashed")
 
     gg <- gg +
       ggplot2::scale_x_continuous(
@@ -2194,12 +2337,10 @@ plot_man <- function(
         plot.margin = ggplot2::margin(10, 14, 14, 10)
       )
 
-    m_ord <- m[order(m$Pvalue), , drop = FALSE]
-    top_df <- head(m_ord, min(as.integer(label_n), nrow(m_ord)))
-    if (nrow(top_df) > 0) {
+    if (nrow(label_df) > 0) {
       if (requireNamespace("ggrepel", quietly = TRUE)) {
         gg <- gg + ggrepel::geom_text_repel(
-          data = top_df,
+          data = label_df,
           ggplot2::aes(x = BP_cum, y = NegLog10P, label = Gene),
           inherit.aes = FALSE,
           size = 2.6,
@@ -2214,7 +2355,7 @@ plot_man <- function(
         )
       } else {
         gg <- gg + ggplot2::geom_text(
-          data = top_df,
+          data = label_df,
           ggplot2::aes(x = BP_cum, y = NegLog10P, label = Gene),
           inherit.aes = FALSE,
           size = 2.6,
@@ -2235,7 +2376,8 @@ plot_man <- function(
     nm <- length(unique(as.factor(man$Max_MAF_lab)))
     pchs <- c(16, 17, 15, 18, 8, 3, 4, 10)[as.integer(as.factor(man$Max_MAF_lab))]
     xr <- range(man$BP_cum)
-    yr <- range(man$NegLog10P)
+    y_plot <- man$NegLog10P
+    yr <- range(y_plot, na.rm = TRUE, finite = TRUE)
     padx <- if (diff(xr) > 0) diff(xr) * 0.012 else 1
     graphics::par(
       bg = "white",
@@ -2257,27 +2399,13 @@ plot_man <- function(
     if (length(chr_vlines) > 0) {
       graphics::abline(v = chr_vlines, col = "grey90", lwd = 1)
     }
-    graphics::points(man$BP_cum, man$NegLog10P, pch = pchs, cex = 0.42, col = cols)
+    graphics::points(man$BP_cum, y_plot, pch = pchs, cex = 0.42, col = cols)
     graphics::axis(1, at = midpoints, labels = chr_axis_labels, las = 2, tick = TRUE, cex.axis = 0.62)
-    if (!use_fdr) {
-      abline(h = y_bonf_gene, col = "#E69F00", lwd = 2, lty = 2)
-      abline(h = y_bonf_maf, col = "#009E73", lwd = 2, lty = 2)
-    } else {
-      if (is.finite(y_fdr)) {
-        abline(h = y_fdr, col = "#7570B3", lwd = 2, lty = 2)
-      }
-      if (
-        is.finite(y_fdr_weak) &&
-          (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)
-      ) {
-        abline(h = y_fdr_weak, col = "#542788", lwd = 2, lty = 1)
-      }
-    }
+    abline(h = y_bonf_gene, col = "#E69F00", lwd = 2, lty = 2)
+    abline(h = y_bonf_maf, col = "#009E73", lwd = 2, lty = 2)
     graphics::title(sub = corner_txt, line = 6.5, cex.sub = 0.48, col.sub = "gray35")
-    top_n <- min(as.integer(label_n), nrow(man))
-    if (top_n > 0) {
-      top_genes <- man[order(man$Pvalue), ][seq_len(top_n), , drop = FALSE]
-      graphics::text(top_genes$BP_cum, top_genes$NegLog10P, labels = top_genes$Gene,
+    if (nrow(label_df) > 0) {
+      graphics::text(label_df$BP_cum, label_df$NegLog10P, labels = label_df$Gene,
            pos = 3, cex = 0.48, col = "gray20")
     }
     safe_dev_off()
@@ -2305,33 +2433,11 @@ plot_man <- function(
   invisible(TRUE)
 }
 
-qq_png <- paste0("qq_plot_", tag, ".png")
-man_png_b <- paste0("manhattan_plot_", tag, "_bonferroni.png")
-man_png_f <- paste0("manhattan_plot_", tag, "_fdr.png")
-plot_qq(qq_fn, qq_png, paste("QQ —", tag))
-plot_man(man_fn, man_png_b, paste("Manhattan (Bonferroni) —", tag), tag, n_genes_merged, "bonferroni", TRUE)
-plot_man(man_fn, man_png_f, paste("Manhattan (BH-FDR) —", tag), tag, n_genes_merged, "fdr", FALSE)
+qq_png <- "qq_plot.png"
+man_png_b <- "manhattan_plot.png"
+plot_qq(qq_fn, qq_png, paste0("QQ plot — ", tag))
+plot_man(man_fn, man_png_b, paste0("Manhattan (Bonferroni) — ", tag), tag, n_genes_merged, TRUE)
 
-if (legacy && file.exists(qq_png)) {
-  file.copy(qq_png, "qq_plot.png", overwrite = TRUE)
-}
-if (legacy && file.exists(man_png_b)) {
-  file.copy(man_png_b, "manhattan_plot.png", overwrite = TRUE)
-}
-if (legacy && file.exists(man_png_f)) {
-  file.copy(man_png_f, "manhattan_plot_fdr.png", overwrite = TRUE)
-}
-if (tag == "allGroups_allMaf") {
-  if (file.exists(qq_png)) {
-    file.copy(qq_png, "qq_plot.png", overwrite = TRUE)
-  }
-  if (file.exists(man_png_b)) {
-    file.copy(man_png_b, "manhattan_plot.png", overwrite = TRUE)
-  }
-  if (file.exists(man_png_f)) {
-    file.copy(man_png_f, "manhattan_plot_fdr.png", overwrite = TRUE)
-  }
-}
 RSCRIPT
 
     local _fg_save="${FILTER_GROUP:-}"
@@ -2347,16 +2453,15 @@ RSCRIPT
             echo "    WARNING: R plotting failed for tag=$tag"
             return 1
         fi
-        [ -f "$OUTPUT_DIR/qq_plot_${tag}.png" ] && echo "    ✓ qq_plot_${tag}.png"
-        [ -f "$OUTPUT_DIR/manhattan_plot_${tag}_bonferroni.png" ] && echo "    ✓ manhattan_plot_${tag}_bonferroni.png"
-        [ -f "$OUTPUT_DIR/manhattan_plot_${tag}_fdr.png" ] && echo "    ✓ manhattan_plot_${tag}_fdr.png"
+        [ -f "$OUTPUT_DIR/qq_plot.png" ] && echo "    ✓ qq_plot.png"
+        [ -f "$OUTPUT_DIR/manhattan_plot.png" ] && echo "    ✓ manhattan_plot.png"
         return 0
     }
 
     if [ "$PLOT_DO_UNFILTERED" = "1" ]; then
         FILTER_GROUP=""
         FILTER_MAF=""
-        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → qq + manhattan (_bonferroni + _fdr PNGs)"
+        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → qq_plot.png + manhattan_plot.png"
     fi
 
     FILTER_GROUP="$_fg_save"
@@ -2482,6 +2587,35 @@ if [ "$INTERACTIVE" = true ]; then
     show_menu
     echo ""
     
+    echo "Cauchy annotation group — where should it be omitted? (all_results.txt on disk is never modified.)"
+    echo "  [1] Keep everywhere (default)"
+    echo "  [2] Plots only — QQ / Manhattan / Bonferroni gene count"
+    echo "  [3] Plots + tables — also significance exports, top genes, chromosome & group summaries, listgroups"
+    echo "  [4] Full — same as [3] plus totals in the full summary report (analysis_summary-style counts)"
+    echo "Names accepted: off, plots, pipeline, full (case-insensitive). Numbers 1–4."
+    read -r -p "  Choice [1-4 or name] (Enter=1): " CAUCHY_MODE_IN
+    CM=$(printf '%s' "${CAUCHY_MODE_IN:-1}" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    case "$CM" in
+        ''|1|off|none|no)
+            STEP9_CAUCHY_MODE=off
+            ;;
+        2|plots|plot)
+            STEP9_CAUCHY_MODE=plots
+            ;;
+        3|pipeline|sig|tables|analysis)
+            STEP9_CAUCHY_MODE=pipeline
+            ;;
+        4|full|all|everything|complete)
+            STEP9_CAUCHY_MODE=full
+            ;;
+        *)
+            echo "  (unrecognized; using off)"
+            STEP9_CAUCHY_MODE=off
+            ;;
+    esac
+    echo "  Cauchy mode: ${STEP9_CAUCHY_MODE}"
+    echo ""
+    
     echo "Examples: midpoint (usual) | start | end — used when gene coordinates are available."
     read -r -p "Position mode for gene plotting (start/end/midpoint) [midpoint]: " POS_MODE_INPUT
     POSITION_MODE="${POS_MODE_INPUT:-midpoint}"
@@ -2526,8 +2660,8 @@ if [ "$INTERACTIVE" = true ]; then
     
     echo ""
     echo "--- PNG plots (makeplots / plotdata): one QQ + one Manhattan (all groups, all max_MAF) ---"
-    echo "  qq_plot_allGroups_allMaf.png"
-    echo "  manhattan_plot_allGroups_allMaf_bonferroni.png   manhattan_plot_allGroups_allMaf_fdr.png"
+    echo "  qq_plot.png"
+    echo "  manhattan_plot.png (Bonferroni, −log10 P)"
     read -r -p "Generate those plots when using plotdata/makeplots? [y/n] (Enter=yes): " PU
     if step9_prompt_is_yes "$PU" "y"; then
         PLOT_DO_UNFILTERED=1
@@ -2549,6 +2683,8 @@ fi
 if [ -z "${PLOT_DO_UNFILTERED:-}" ]; then
     PLOT_DO_UNFILTERED="${STEP9_PLOT_UNFILTERED:-1}"
 fi
+
+step9_normalize_cauchy_mode_from_env
 
 # Normalize user inputs
 COORD_SOURCE=$(echo "$COORD_SOURCE" | tr '[:upper:]' '[:lower:]')
@@ -2582,6 +2718,17 @@ fi
 if [ -n "$FILTER_MAF" ]; then
     printf 'Filtering by max_MAF <= %s\n' "$FILTER_MAF"
 fi
+case "${STEP9_CAUCHY_MODE:-off}" in
+    plots)
+        printf '%s\n' "Cauchy mode=plots: omitted from QQ/Manhattan/Bonferroni gene count only."
+        ;;
+    pipeline)
+        printf '%s\n' "Cauchy mode=pipeline: omitted from plots and from significance/top/chromosome/group/list outputs; full summary totals still include Cauchy."
+        ;;
+    full)
+        printf '%s\n' "Cauchy mode=full: omitted from plots, all derived tables, and full summary totals."
+        ;;
+esac
 printf '%s\n' "PNG plots (makeplots): single QQ + Manhattan, all groups x all max_MAF, unfiltered=${PLOT_DO_UNFILTERED}"
 echo ""
 
@@ -2621,7 +2768,7 @@ echo "Primary outputs:"
 echo "  - analysis_summary.txt"
 echo "  - top50_genes.txt"
 echo "  - qq_plot_data.txt and manhattan_plot_data.txt"
-echo "  - qq_plot.png; manhattan_plot.png = Bonferroni; manhattan_plot_fdr.png = BH-FDR (when Rscript is available)"
+echo "  - qq_plot.png; manhattan_plot.png = Bonferroni (-log10 P) with gene Bonferroni reference lines (when Rscript is available)"
 echo ""
 
 if [ -f "$OUTPUT_DIR/annotation_groups.txt" ]; then
