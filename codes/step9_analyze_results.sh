@@ -1188,6 +1188,96 @@ step9_unique_genes_p_lt_file() {
     ' "$file"
 }
 
+# Console summary (same four lines as findsig) for one P column index.
+step9_echo_findsig_style_block() {
+    local title="$1"
+    local wf="$2"
+    local pcol="$3"
+    [ -z "${pcol:-}" ] && return 0
+    local GWS_COUNT SUG_COUNT NOM_COUNT P001_COUNT
+    local GWS_GENES SUG_GENES NOM_GENES P001_GENES
+    GWS_COUNT=$(tail -n +2 "$wf" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+    SUG_COUNT=$(tail -n +2 "$wf" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+    NOM_COUNT=$(tail -n +2 "$wf" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+    P001_COUNT=$(tail -n +2 "$wf" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
+    GWS_GENES=$(step9_unique_genes_p_lt_file "$wf" "5e-8" "$pcol")
+    SUG_GENES=$(step9_unique_genes_p_lt_file "$wf" "1e-5" "$pcol")
+    NOM_GENES=$(step9_unique_genes_p_lt_file "$wf" "0.05" "$pcol")
+    P001_GENES=$(step9_unique_genes_p_lt_file "$wf" "0.01" "$pcol")
+    echo "  --- $title ---"
+    echo "  Genome-wide (p < 5e-8):  $GWS_GENES unique genes ($GWS_COUNT result rows)"
+    echo "  Suggestive (p < 1e-5):   $SUG_GENES unique genes ($SUG_COUNT result rows)"
+    echo "  Nominal (p < 0.05):      $NOM_GENES unique genes ($NOM_COUNT result rows)"
+    echo "  P < 0.01:                $P001_GENES unique genes ($P001_COUNT result rows)"
+    echo ""
+}
+
+# One table for chromosome_summary.txt (stdout). Uses OUTPUT_DIR, step9_chr_rows_for_summary.
+step9_chromsum_emit_section() {
+    local pcol="$1"
+    local title="$2"
+    echo ""
+    echo "=== $title ==="
+    printf "%-5s %-11s %-11s %-11s %-11s %-11s %-11s\n" \
+        "Chr" "Genes" "Rows" "GWS_r" "Sug_r" "Nom_r" "P01_r"
+    echo "----------------------------------------------------------------------------------"
+    local chr CHR_FILE TOTAL UNIQ GWS SUG NOM P001
+    for chr in {1..22} X Y; do
+        CHR_FILE=""
+        if [ -f "$OUTPUT_DIR/chr${chr}_combined_results.txt" ]; then
+            CHR_FILE="$OUTPUT_DIR/chr${chr}_combined_results.txt"
+        elif [ -f "$OUTPUT_DIR/chr${chr}_combined.txt" ]; then
+            CHR_FILE="$OUTPUT_DIR/chr${chr}_combined.txt"
+        elif [ -f "$OUTPUT_DIR/chr${chr}_all_results.txt" ]; then
+            CHR_FILE="$OUTPUT_DIR/chr${chr}_all_results.txt"
+        fi
+        if [ -n "$CHR_FILE" ] && [ -f "$CHR_FILE" ]; then
+            get_columns "$CHR_FILE" > /dev/null 2>&1
+            TOTAL=$(step9_chr_rows_for_summary "$CHR_FILE" | wc -l | tr -d ' ')
+            UNIQ=$(step9_unique_genes_count_file "$CHR_FILE")
+            GWS=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+            SUG=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+            NOM=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+            P001=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$pcol" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
+            printf "%-5s %-11s %-11s %-11s %-11s %-11s %-11s\n" \
+                "$chr" "$UNIQ" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
+        fi
+    done
+}
+
+# One table for annotation_group_summary.txt or fullsum (stdout). Uses GROUPCOL / REGIONCOL.
+step9_groupsum_emit_section() {
+    local pcol="$1"
+    local title="$2"
+    local src="$3"
+    echo ""
+    echo "=== $title ==="
+    printf "%-30s %-12s %-12s %-12s %-12s %-12s %-12s\n" \
+        "Annotation_Group" "Genes" "Rows" "GWS_rows" "Sug_rows" "Nom_rows" "P01_rows"
+    echo "------------------------------------------------------------------------------------------------"
+    tail -n +2 "$src" | cut -f"$GROUPCOL" | sort -u | while read -r group; do
+        TOTAL=$(tail -n +2 "$src" | awk -v gcol="$GROUPCOL" -v grp="$group" -F'\t' '$gcol == grp' | wc -l | tr -d ' ')
+        UNIQ=$(awk -F'\t' -v gcol="$GROUPCOL" -v rc="$REGIONCOL" -v grp="$group" '
+              NR > 1 && $gcol == grp && rc >= 1 && rc <= NF {
+                r = $rc
+                if (r == "" || r == "NA") next
+                if (r ~ /:/) {
+                  split(r, arr, /:/)
+                  r = arr[length(arr)]
+                  if (r ~ /^[0-9]+$/) r = $rc
+                }
+                seen[r] = 1
+              }
+              END { n = 0; for (k in seen) n++; print n + 0 }' "$src")
+        GWS=$(tail -n +2 "$src" | awk -v gcol="$GROUPCOL" -v pcol="$pcol" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+        SUG=$(tail -n +2 "$src" | awk -v gcol="$GROUPCOL" -v pcol="$pcol" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+        NOM=$(tail -n +2 "$src" | awk -v gcol="$GROUPCOL" -v pcol="$pcol" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+        P001=$(tail -n +2 "$src" | awk -v gcol="$GROUPCOL" -v pcol="$pcol" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
+        printf "%-30s %-12s %-12s %-12s %-12s %-12s %-12s\n" \
+            "$group" "$UNIQ" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
+    done
+}
+
 # QQ/Manhattan P column: pvalue | burden | skat | all (env STEP9_MANHATTAN_P_MODE)
 step9_normalize_manhattan_p_mode_from_env() {
     local raw="${STEP9_MANHATTAN_P_MODE:-pvalue}"
@@ -1536,30 +1626,18 @@ op_findsig() {
     # Genome-wide significant (p < 5e-8)
     head -1 "$WORK_FILE" > "$OUTPUT_DIR/genome_wide_sig.txt"
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
-    GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/genome_wide_sig.txt" | wc -l | tr -d ' ')
-    GWS_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "5e-8")
-    echo "  Genome-wide (p < 5e-8):  $GWS_GENES unique genes ($GWS_COUNT result rows)"
     
     # Suggestive (p < 1e-5)
     head -1 "$WORK_FILE" > "$OUTPUT_DIR/suggestive_sig.txt"
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
-    SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/suggestive_sig.txt" | wc -l | tr -d ' ')
-    SUG_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "1e-5")
-    echo "  Suggestive (p < 1e-5):   $SUG_GENES unique genes ($SUG_COUNT result rows)"
     
     # Nominal (p < 0.05)
     head -1 "$WORK_FILE" > "$OUTPUT_DIR/nominal_sig.txt"
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
-    NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/nominal_sig.txt" | wc -l | tr -d ' ')
-    NOM_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.05")
-    echo "  Nominal (p < 0.05):      $NOM_GENES unique genes ($NOM_COUNT result rows)"
     
     # P < 0.01
     head -1 "$WORK_FILE" > "$OUTPUT_DIR/sig_p001.txt"
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001.txt"
-    P001_COUNT=$(tail -n +2 "$OUTPUT_DIR/sig_p001.txt" | wc -l | tr -d ' ')
-    P001_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.01")
-    echo "  P < 0.01:                $P001_GENES unique genes ($P001_COUNT result rows)"
 
     if [ -n "${PCOL_BURDEN:-}" ]; then
         head -1 "$WORK_FILE" > "$OUTPUT_DIR/genome_wide_sig_burden.txt"
@@ -1570,7 +1648,6 @@ op_findsig() {
         tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig_burden.txt"
         head -1 "$WORK_FILE" > "$OUTPUT_DIR/sig_p001_burden.txt"
         tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001_burden.txt"
-        echo "  Pvalue_Burden: also wrote genome_wide_sig_burden.txt, suggestive_sig_burden.txt, nominal_sig_burden.txt, sig_p001_burden.txt"
     fi
     if [ -n "${PCOL_SKAT:-}" ]; then
         head -1 "$WORK_FILE" > "$OUTPUT_DIR/genome_wide_sig_skat.txt"
@@ -1581,8 +1658,12 @@ op_findsig() {
         tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig_skat.txt"
         head -1 "$WORK_FILE" > "$OUTPUT_DIR/sig_p001_skat.txt"
         tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001_skat.txt"
-        echo "  Pvalue_SKAT: also wrote genome_wide_sig_skat.txt, suggestive_sig_skat.txt, nominal_sig_skat.txt, sig_p001_skat.txt"
     fi
+
+    step9_echo_findsig_style_block "Pvalue (combined)" "$WORK_FILE" "$PCOL"
+    [ -n "${PCOL_BURDEN:-}" ] && step9_echo_findsig_style_block "Pvalue_Burden" "$WORK_FILE" "$PCOL_BURDEN"
+    [ -n "${PCOL_SKAT:-}" ] && step9_echo_findsig_style_block "Pvalue_SKAT" "$WORK_FILE" "$PCOL_SKAT"
+    echo "  Tier files: genome_wide_sig*.txt, suggestive_sig*.txt, nominal_sig*.txt, sig_p001*.txt"
     
     echo "  ✓ Significance filtering complete"
     echo ""
@@ -1619,7 +1700,17 @@ op_findgws() {
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig.txt"
     GWS_COUNT=$(tail -n +2 "$OUTPUT_DIR/genome_wide_sig.txt" | wc -l | tr -d ' ')
     GWS_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "5e-8")
-    echo "  Genome-wide significant: $GWS_GENES unique genes ($GWS_COUNT result rows)"
+    echo "  Pvalue (combined) p<5e-8: $GWS_GENES unique genes ($GWS_COUNT result rows)"
+    if [ -n "${PCOL_BURDEN:-}" ]; then
+        GWSB_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+        GWSB_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "5e-8" "$PCOL_BURDEN")
+        echo "  Pvalue_Burden p<5e-8:      $GWSB_GENES unique genes ($GWSB_COUNT result rows)"
+    fi
+    if [ -n "${PCOL_SKAT:-}" ]; then
+        GWSS_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+        GWSS_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "5e-8" "$PCOL_SKAT")
+        echo "  Pvalue_SKAT p<5e-8:       $GWSS_GENES unique genes ($GWSS_COUNT result rows)"
+    fi
     echo "  ✓ Saved to: genome_wide_sig.txt"
     echo ""
 }
@@ -1655,7 +1746,17 @@ op_findsug() {
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig.txt"
     SUG_COUNT=$(tail -n +2 "$OUTPUT_DIR/suggestive_sig.txt" | wc -l | tr -d ' ')
     SUG_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "1e-5")
-    echo "  Suggestive results: $SUG_GENES unique genes ($SUG_COUNT result rows)"
+    echo "  Pvalue (combined) p<1e-5: $SUG_GENES unique genes ($SUG_COUNT result rows)"
+    if [ -n "${PCOL_BURDEN:-}" ]; then
+        SUGB_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+        SUGB_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "1e-5" "$PCOL_BURDEN")
+        echo "  Pvalue_Burden p<1e-5:      $SUGB_GENES unique genes ($SUGB_COUNT result rows)"
+    fi
+    if [ -n "${PCOL_SKAT:-}" ]; then
+        SUGS_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+        SUGS_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "1e-5" "$PCOL_SKAT")
+        echo "  Pvalue_SKAT p<1e-5:       $SUGS_GENES unique genes ($SUGS_COUNT result rows)"
+    fi
     echo "  ✓ Saved to: suggestive_sig.txt"
     echo ""
 }
@@ -1691,7 +1792,17 @@ op_findnom() {
     tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig.txt"
     NOM_COUNT=$(tail -n +2 "$OUTPUT_DIR/nominal_sig.txt" | wc -l | tr -d ' ')
     NOM_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.05")
-    echo "  Nominal significant: $NOM_GENES unique genes ($NOM_COUNT result rows)"
+    echo "  Pvalue (combined) p<0.05: $NOM_GENES unique genes ($NOM_COUNT result rows)"
+    if [ -n "${PCOL_BURDEN:-}" ]; then
+        NOMB_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+        NOMB_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.05" "$PCOL_BURDEN")
+        echo "  Pvalue_Burden p<0.05:     $NOMB_GENES unique genes ($NOMB_COUNT result rows)"
+    fi
+    if [ -n "${PCOL_SKAT:-}" ]; then
+        NOMS_COUNT=$(tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+        NOMS_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.05" "$PCOL_SKAT")
+        echo "  Pvalue_SKAT p<0.05:      $NOMS_GENES unique genes ($NOMS_COUNT result rows)"
+    fi
     echo "  ✓ Saved to: nominal_sig.txt"
     echo ""
 }
@@ -1761,38 +1872,32 @@ op_chromsum() {
     echo "Generating per-chromosome summary..."
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     
-    {
-        printf "%-5s %-11s %-11s %-11s %-11s %-11s %-11s\n" \
-            "Chr" "Genes" "Rows" "GWS_r" "Sug_r" "Nom_r" "P01_r"
-        echo "----------------------------------------------------------------------------------"
-        echo "Genes = unique Region on chromosome (primary). Rows = all tests on chr."
-        echo " *_r = result rows with P below threshold (detail)."
-        echo "----------------------------------------------------------------------------------"
-        
-        for chr in {1..22} X Y; do
-            CHR_FILE=""
-            if [ -f "$OUTPUT_DIR/chr${chr}_combined_results.txt" ]; then
-                CHR_FILE="$OUTPUT_DIR/chr${chr}_combined_results.txt"
-            elif [ -f "$OUTPUT_DIR/chr${chr}_combined.txt" ]; then
-                CHR_FILE="$OUTPUT_DIR/chr${chr}_combined.txt"
-            elif [ -f "$OUTPUT_DIR/chr${chr}_all_results.txt" ]; then
-                CHR_FILE="$OUTPUT_DIR/chr${chr}_all_results.txt"
-            fi
-            
-            if [ -n "$CHR_FILE" ] && [ -f "$CHR_FILE" ]; then
-                get_columns "$CHR_FILE" > /dev/null 2>&1
-                
-                TOTAL=$(step9_chr_rows_for_summary "$CHR_FILE" | wc -l | tr -d ' ')
-                UNIQ=$(step9_unique_genes_count_file "$CHR_FILE")
-                GWS=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
-                SUG=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
-                NOM=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
-                P001=$(step9_chr_rows_for_summary "$CHR_FILE" | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
-                
-                printf "%-5s %-11s %-11s %-11s %-11s %-11s %-11s\n" \
-                    "$chr" "$UNIQ" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
+    if [ -f "$OUTPUT_DIR/all_results.txt" ]; then
+        get_columns "$OUTPUT_DIR/all_results.txt" > /dev/null 2>&1
+    else
+        _step9_chr_probe=""
+        for _c in {1..22} X Y; do
+            if [ -f "$OUTPUT_DIR/chr${_c}_combined_results.txt" ]; then
+                _step9_chr_probe="$OUTPUT_DIR/chr${_c}_combined_results.txt"
+                break
+            elif [ -f "$OUTPUT_DIR/chr${_c}_combined.txt" ]; then
+                _step9_chr_probe="$OUTPUT_DIR/chr${_c}_combined.txt"
+                break
+            elif [ -f "$OUTPUT_DIR/chr${_c}_all_results.txt" ]; then
+                _step9_chr_probe="$OUTPUT_DIR/chr${_c}_all_results.txt"
+                break
             fi
         done
+        [ -n "$_step9_chr_probe" ] && get_columns "$_step9_chr_probe" > /dev/null 2>&1
+    fi
+    
+    {
+        echo "Per-chromosome summaries (separate section per P column when Pvalue_Burden / Pvalue_SKAT exist)."
+        echo "Genes = unique Region on chromosome (primary). Rows = all tests on chr."
+        echo "*_r = result rows with P below threshold (detail)."
+        step9_chromsum_emit_section "$PCOL" "Pvalue (combined)"
+        [ -n "${PCOL_BURDEN:-}" ] && step9_chromsum_emit_section "$PCOL_BURDEN" "Pvalue_Burden"
+        [ -n "${PCOL_SKAT:-}" ] && step9_chromsum_emit_section "$PCOL_SKAT" "Pvalue_SKAT"
     } > "$OUTPUT_DIR/chromosome_summary.txt"
     
     cat "$OUTPUT_DIR/chromosome_summary.txt"
@@ -1821,36 +1926,12 @@ op_groupsum() {
     echo ""
     
     {
-        printf "%-30s %-12s %-12s %-12s %-12s %-12s %-12s\n" \
-            "Annotation_Group" "Genes" "Rows" "GWS_rows" "Sug_rows" "Nom_rows" "P01_rows"
-        echo "------------------------------------------------------------------------------------------------"
+        echo "Per–annotation-group summaries (separate section per P column when Pvalue_Burden / Pvalue_SKAT exist)."
         echo "Genes = unique Region in group (primary). Rows = tests in group."
-        echo " *_rows = result rows meeting P threshold (detail)."
-        echo "------------------------------------------------------------------------------------------------"
-        
-        # Get unique groups
-        tail -n +2 "$STEP9_TABLE_SRC" | cut -f"$GROUPCOL" | sort -u | while read -r group; do
-            TOTAL=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v grp="$group" -F'\t' '$gcol == grp' | wc -l | tr -d ' ')
-            UNIQ=$(awk -F'\t' -v gcol="$GROUPCOL" -v rc="$REGIONCOL" -v grp="$group" '
-              NR > 1 && $gcol == grp && rc >= 1 && rc <= NF {
-                r = $rc
-                if (r == "" || r == "NA") next
-                if (r ~ /:/) {
-                  split(r, arr, /:/)
-                  r = arr[length(arr)]
-                  if (r ~ /^[0-9]+$/) r = $rc
-                }
-                seen[r] = 1
-              }
-              END { n = 0; for (k in seen) n++; print n + 0 }' "$STEP9_TABLE_SRC")
-            GWS=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
-            SUG=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
-            NOM=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
-            P001=$(tail -n +2 "$STEP9_TABLE_SRC" | awk -v gcol="$GROUPCOL" -v pcol="$PCOL" -v grp="$group" -F'\t' '$gcol == grp && $pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
-            
-            printf "%-30s %-12s %-12s %-12s %-12s %-12s %-12s\n" \
-                "$group" "$UNIQ" "$TOTAL" "$GWS" "$SUG" "$NOM" "$P001"
-        done
+        echo "*_rows = result rows meeting P threshold (detail)."
+        step9_groupsum_emit_section "$PCOL" "Pvalue (combined)" "$STEP9_TABLE_SRC"
+        [ -n "${PCOL_BURDEN:-}" ] && step9_groupsum_emit_section "$PCOL_BURDEN" "Pvalue_Burden" "$STEP9_TABLE_SRC"
+        [ -n "${PCOL_SKAT:-}" ] && step9_groupsum_emit_section "$PCOL_SKAT" "Pvalue_SKAT" "$STEP9_TABLE_SRC"
     } > "$OUTPUT_DIR/annotation_group_summary.txt"
     
     cat "$OUTPUT_DIR/annotation_group_summary.txt"
@@ -1986,7 +2067,12 @@ op_fullsum() {
             echo ""
         fi
         
-        echo "Annotation groups  (unique genes per group; result rows in parentheses):"
+        echo "Annotation groups — P threshold detail (GWS / Sug / Nom / P01 rows per group)"
+        step9_groupsum_emit_section "$PCOL" "Pvalue (combined)" "$SUM_SRC"
+        [ -n "${PCOL_BURDEN:-}" ] && step9_groupsum_emit_section "$PCOL_BURDEN" "Pvalue_Burden" "$SUM_SRC"
+        [ -n "${PCOL_SKAT:-}" ] && step9_groupsum_emit_section "$PCOL_SKAT" "Pvalue_SKAT" "$SUM_SRC"
+        echo ""
+        echo "Annotation groups — unique genes per group (all tests; result rows in parentheses):"
         echo "----------------------------------------"
         tail -n +2 "$SUM_SRC" | cut -f"$GROUPCOL" | sort -u | while read -r _grp; do
             _rows=$(tail -n +2 "$SUM_SRC" | awk -F'\t' -v gcol="$GROUPCOL" -v grp="$_grp" '$gcol == grp' | wc -l | tr -d ' ')

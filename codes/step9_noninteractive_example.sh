@@ -10,6 +10,9 @@
 #   RESULTS_DIR=/path/to/out PRESET=quick ./step9_noninteractive_example.sh
 #   # Same as: STEP9_RESULTS_DIR=/path/to/out PRESET=quick ./step9_noninteractive_example.sh
 #
+# When all_results.txt includes Pvalue_Burden / Pvalue_SKAT (SAIGE-GENE), significance summaries
+# (findsig, fullsum, chromsum, groupsum, findgws/findsug/findnom) report all present P columns.
+#
 
 set -euo pipefail
 
@@ -81,18 +84,18 @@ ENSEMBL_RELEASE="${ENSEMBL_RELEASE:-}"      # optional e.g. 115, or full REST UR
 #   listgroups       List annotation groups
 #
 # Significance:
-#   findsig          Multiple significance files (GWS, suggestive, nominal, …)
-#   findgws          p < 5e-8
-#   findsug          p < 1e-5
-#   findnom          p < 0.05
+#   findsig          Tier files + console counts for Pvalue, Pvalue_Burden, Pvalue_SKAT (when columns exist)
+#   findgws          p < 5e-8 (combined + optional Burden/SKAT counts)
+#   findsug          p < 1e-5 (combined + optional Burden/SKAT counts)
+#   findnom          p < 0.05 (combined + optional Burden/SKAT counts)
 #
 # Gene ranking:
 #   top10 | top50 | top100
 #
 # Summary:
-#   chromsum         Per-chromosome summary
-#   groupsum         Per–annotation-group summary
-#   fullsum          Full text summary report
+#   chromsum         Per-chromosome summary (sections per P column when Burden/SKAT exist)
+#   groupsum         Per–annotation-group summary (sections per P column when Burden/SKAT exist)
+#   fullsum          Full text summary report (threshold tables + group tables per P when present)
 #
 # Plot data / PNG:
 #   qqdata           qq_plot_data.txt (optional qq_plot_data_burden.txt / *_skat.txt if STEP9_MANHATTAN_P_MODE=all)
