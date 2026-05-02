@@ -270,7 +270,7 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 6 | `step6_extract_genotypes_plink2a.sh` | Extract cohort genotypes per gene region |
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + run test jobs |
-| 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results, optional QQ/Manhattan |
+| 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results; QQ/Manhattan for **`Pvalue`** / **`Pvalue_Burden`** / **`Pvalue_SKAT`** (**`STEP9_MANHATTAN_P_MODE`**) |
 
 **Performance (recent versions):** Step **4** streams `all_genes_coords.txt` once per build (not one full scan per chromosome). Step **5** uses **one `awk` per chromosome** for filter + BED + gene list (no huge temp match files). Steps **1**, **3**, and **6** use lighter counting/parsing (e.g. **1**: awk + one numeric sort per table; **3**: var lines only `NR%2==1`; **6**: no GNU-only `grep -P` so macOS stays portable).
 
@@ -363,11 +363,12 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 
 **Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, `chr*_chunk*_results.txt`, or `chr*_all_results.txt`). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
 
-**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `STEP9_SCRIPT`, `OPERATIONS`, `PRESET`, etc.); runs `step9_analyze_results.sh` (same repo folder by default). Example:
+**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `STEP9_SCRIPT`, `OPERATIONS`, `PRESET`, **`STEP9_MANHATTAN_P_MODE`**, etc.); runs `step9_analyze_results.sh` (same repo folder by default). Example:
 
 ```bash
 chmod +x codes/step9_noninteractive_example.sh
 RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
+# Multi-P QQ/Manhattan: STEP9_MANHATTAN_P_MODE=all PRESET=plots_only ./codes/step9_noninteractive_example.sh
 # Equivalent: STEP9_RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
 ```
 
@@ -395,17 +396,18 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 
 **Environment variables (Step 9)**
 
-- **Plots & Manhattan:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: one QQ + one Manhattan for all groups × all max_MAF). **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols labeled in addition to the top‑N by *P*; case-insensitive; missing symbols are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab file merged into that list: use column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`** if the header matches; else column 1 and the first row is data). **`STEP9_BONFERRONI_MAF_TESTS`** (green Bonferroni line on **`manhattan_plot.png`**, default **`3`**).
+- **Plots & Manhattan:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: QQ + Manhattan for all groups × all max_MAF). **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols labeled in addition to the top‑N by *P*; case-insensitive; missing symbols are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab file merged into that list: use column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`** if the header matches; else column 1 and the first row is data). **`STEP9_BONFERRONI_MAF_TESTS`** (green Bonferroni line on Manhattan PNGs, default **`3`**).
+- **SAIGE-GENE P columns (QQ / Manhattan / `qqdata` / `mandata` / `fullsum` thresholds):** merged output can include **`Pvalue`** (combined), **`Pvalue_Burden`**, and **`Pvalue_SKAT`**. Set **`STEP9_MANHATTAN_P_MODE`** to **`pvalue`** (default, combined only), **`burden`**, **`skat`**, or **`all`** (emit and plot every column that exists). Batch runs use this variable; **interactive** runs prompt for the same choice when Burden or SKAT columns are present. With **`all`**, data files and PNGs use suffixes **`_burden`** and **`_skat`** (e.g. **`qq_plot_burden.png`**); **`group_statistics.txt`** is written from the combined **`Pvalue`** run only.
 - **Cauchy rows:** **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — omit the Cauchy annotation group from plots only, from tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** = **`plots`** if mode unset.
 - **Ensembl (optional coordinates):** **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). Tuning: **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
 
-**Interactive mode** also prompts for Manhattan label count and optional **extra gene labels** (comma list or path to a symbol file). Non-interactive runs use the env vars above only.
+**Interactive mode** also prompts for Manhattan label count, optional **extra gene labels** (comma list or path to a symbol file), and (if **`Pvalue_Burden`** / **`Pvalue_SKAT`** are in the table) which P column to use for QQ/Manhattan or whether to generate **all** three. Non-interactive runs rely on **`STEP9_MANHATTAN_P_MODE`** and the other env vars above.
 
 **Presets (actual chain in script):** **`standard`** — detect_files, mergeall, listgroups, findsig, top50, groupsum, makeplots, fullsum. **`quick`** — detect_files, mergeall, listgroups, top50, makeplots, fullsum (no findsig or groupsum). **`full`** — detect_files, mergechrom, mergeall, listgroups, findsig, top10, top50, top100, chromsum, groupsum, makeplots, fullsum.
 
-**Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** and **`makeplots`** are **equivalent** (both call the same code path: refresh `qq_plot_data.txt` / `manhattan_plot_data.txt` and write PNGs and group statistics when R is available).
+**Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** and **`makeplots`** are **equivalent** (both refresh QQ/Manhattan plot data, write PNGs and **`group_statistics.txt`** when R is available; optional **`STEP9_MANHATTAN_P_MODE`** selects combined vs burden vs SKAT vs all).
 
-**Artifacts:** `all_results.txt`, significance-tier files, `top*_genes.txt`, **`qq_plot_data.txt`**, **`manhattan_plot_data.txt`**, **`qq_plot.png`**, **`manhattan_plot.png`** (Bonferroni −log10 *P*), **`group_statistics.txt`** (from makeplots when R runs), `analysis_summary.txt`; helpers `.all_results_no_cauchy.txt` (when Cauchy is omitted from tables), `.gene_coords_lookup.txt`, **`.step9_generate_plots.R`** (written under the results directory when plot generation runs).
+**Artifacts:** `all_results.txt`, significance-tier files (main tier files use combined **`Pvalue`**; if Burden/SKAT columns exist, also **`genome_wide_sig_burden.txt`** / **`_skat.txt`**, and matching **`suggestive_sig_*`**, **`nominal_sig_*`**, **`sig_p001_*`**), `top*_genes.txt`, **`qq_plot_data.txt`** / **`manhattan_plot_data.txt`** (and **`*_burden`**, **`*_skat`** when multi-P), **`qq_plot.png`** / **`manhattan_plot.png`** (and optional **`qq_plot_burden.png`**, **`manhattan_plot_burden.png`**, **`*_skat.png`**), **`group_statistics.txt`** (from makeplots when R runs; combined P only), **`analysis_summary.txt`** from **`fullsum`** (threshold tables for **Pvalue**, **Pvalue_Burden**, and **Pvalue_SKAT** when present); helpers `.all_results_no_cauchy.txt` (when Cauchy is omitted from tables), `.gene_coords_lookup.txt`, **`.step9_generate_plots.R`** (written under the results directory when plot generation runs).
 
 ```bash
 # Interactive (menu + prompts)
@@ -544,4 +546,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.0.0 | Last updated: 2026-05-01*
+*Version 2.0.0 | Last updated: 2026-05-02*
