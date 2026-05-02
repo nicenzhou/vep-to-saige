@@ -67,10 +67,8 @@ ENSEMBL_RELEASE=""        # Optional release number (e.g., 115)
 FILTER_GROUP=""  # Filter by specific annotation group
 FILTER_MAF=""    # Filter by max_MAF threshold
 
-# Plot outputs (makeplots / plotdata): set via STEP9_PLOT_* env or interactive prompts (see Main Execution).
+# Plot outputs (makeplots / plotdata): set via STEP9_PLOT_UNFILTERED or interactive prompts (see Main Execution).
 PLOT_DO_UNFILTERED=""
-PLOT_DO_COMBOS=""
-PLOT_MAF_CUT_LIST=""
 
 #==========================================
 # Plot filename helpers
@@ -237,6 +235,7 @@ setup_gene_coords_ensembl() {
     fi
     echo "  Server: $ENSEMBL_SERVER"
     echo "  Position mode: $POSITION_MODE"
+    echo "  Speed: STEP9_ENSEMBL_BATCH_SIZE (default 500), STEP9_ENSEMBL_PARALLEL workers (default 4)"
     
     # Check what releases are actually available on selected server.
     python3 - "$ENSEMBL_SERVER" "$ENSEMBL_RELEASE" << 'PY'
@@ -376,6 +375,7 @@ PY
     fi
     
     python3 - "$all_results_file" "$lookup_file" "$tmp_report" "$POSITION_MODE" "$ENSEMBL_SERVER" "$REGIONCOL" << 'PY'
+import concurrent.futures
 import csv
 import json
 import os
@@ -544,7 +544,12 @@ def fetch_batch(genes):
     )
     out = {}
     try:
-        with urlopen_https(req, timeout=30) as resp:
+        post_timeout = int(os.environ.get("STEP9_ENSEMBL_POST_TIMEOUT", "60").strip())
+    except Exception:
+        post_timeout = 60
+    post_timeout = max(15, min(300, post_timeout))
+    try:
+        with urlopen_https(req, timeout=post_timeout) as resp:
             if resp.status != 200:
                 return out
             data = json.loads(resp.read().decode("utf-8"))
@@ -557,33 +562,72 @@ def fetch_batch(genes):
                 out[g] = c
     return out
 
-coords = {}
-BATCH_SIZE = 200
-total_genes = len(ordered_genes)
-print(f"[Ensembl] Starting batched lookup for {total_genes} genes (batch size {BATCH_SIZE})", flush=True)
-start_ts = time.time()
-for i in range(0, len(ordered_genes), BATCH_SIZE):
-    chunk = ordered_genes[i:i+BATCH_SIZE]
+def fetch_chunk_complete(chunk: list) -> dict:
+    """One POST batch plus per-gene GET only for symbols the batch JSON skipped."""
     batch_coords = fetch_batch(chunk)
+    out = {}
     for gene, val in batch_coords.items():
-        coords[gene] = {"chr": val[0], "pos": val[1], "source": "ensembl"}
-    # Fallback per-gene when batch endpoint misses or fails for some genes.
+        out[gene] = {"chr": val[0], "pos": val[1], "source": "ensembl"}
     for gene in chunk:
-        if gene in coords:
+        if gene in out:
             continue
         val = fetch_gene_single(gene)
         if val is not None:
-            coords[gene] = {"chr": val[0], "pos": val[1], "source": "ensembl"}
-    processed = min(i + BATCH_SIZE, total_genes)
-    elapsed = max(time.time() - start_ts, 1e-6)
-    rate = processed / elapsed
-    remaining = max(total_genes - processed, 0)
-    eta_seconds = int(remaining / rate) if rate > 0 else -1
-    eta_txt = f"{eta_seconds}s" if eta_seconds >= 0 else "NA"
-    print(
-        f"[Ensembl] Processed {processed}/{total_genes}; mapped so far: {len(coords)}; ETA: {eta_txt}",
-        flush=True,
-    )
+            out[gene] = {"chr": val[0], "pos": val[1], "source": "ensembl"}
+    return out
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        v = int(os.environ.get(name, str(default)).strip())
+        return v if v > 0 else default
+    except Exception:
+        return default
+
+BATCH_SIZE = max(10, _env_int("STEP9_ENSEMBL_BATCH_SIZE", 500))
+MAX_WORKERS = max(1, _env_int("STEP9_ENSEMBL_PARALLEL", 4))
+total_genes = len(ordered_genes)
+coords = {}
+chunks = [ordered_genes[i : i + BATCH_SIZE] for i in range(0, len(ordered_genes), BATCH_SIZE)]
+n_chunks = len(chunks)
+print(
+    f"[Ensembl] Starting batched lookup for {total_genes} genes "
+    f"({n_chunks} requests, batch size {BATCH_SIZE}, up to {min(MAX_WORKERS, n_chunks or 1)} parallel)",
+    flush=True,
+)
+start_ts = time.time()
+if n_chunks == 0:
+    pass
+elif MAX_WORKERS <= 1:
+    processed = 0
+    for ch in chunks:
+        coords.update(fetch_chunk_complete(ch))
+        processed += len(ch)
+        elapsed = max(time.time() - start_ts, 1e-6)
+        rate = processed / elapsed
+        remaining = max(total_genes - processed, 0)
+        eta_seconds = int(remaining / rate) if rate > 0 else -1
+        eta_txt = f"{eta_seconds}s" if eta_seconds >= 0 else "NA"
+        print(
+            f"[Ensembl] Processed {processed}/{total_genes}; mapped so far: {len(coords)}; ETA: {eta_txt}",
+            flush=True,
+        )
+else:
+    workers = min(MAX_WORKERS, n_chunks)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+        fut_to_meta = {ex.submit(fetch_chunk_complete, ch): len(ch) for ch in chunks}
+        processed = 0
+        for fut in concurrent.futures.as_completed(fut_to_meta):
+            processed += fut_to_meta[fut]
+            coords.update(fut.result())
+            elapsed = max(time.time() - start_ts, 1e-6)
+            rate = processed / elapsed
+            remaining = max(total_genes - processed, 0)
+            eta_seconds = int(remaining / rate) if rate > 0 else -1
+            eta_txt = f"{eta_seconds}s" if eta_seconds >= 0 else "NA"
+            print(
+                f"[Ensembl] Processed {processed}/{total_genes}; mapped so far: {len(coords)}; ETA: {eta_txt}",
+                flush=True,
+            )
 
 missing = [g for g in ordered_genes if g not in coords]
 for i, gene in enumerate(ordered_genes):
@@ -801,10 +845,16 @@ show_menu() {
     echo "    --results-dir PATH  or  -d PATH"
     echo "    env STEP9_RESULTS_DIR=PATH"
     echo ""
+    echo "Ensembl REST speed (coordinate source=ensembl):"
+    echo "  STEP9_ENSEMBL_BATCH_SIZE=N   symbols per POST (default 500)"
+    echo "  STEP9_ENSEMBL_PARALLEL=N     concurrent batch workers (default 4; set 1 to serialize)"
+    echo "  STEP9_ENSEMBL_POST_TIMEOUT=N POST timeout seconds (default 60, max 300)"
+    echo ""
     echo "Plot PNG options (makeplots / plotdata; non-interactive):"
-    echo "  STEP9_PLOT_UNFILTERED=1|0   include qq_plot_allGroups_allMaf + manhattan (default 1)"
-    echo "  STEP9_PLOT_COMBOS=1|0        also each (Group × MAF cutoff) (default 0)"
-    echo "  STEP9_PLOT_MAF_LIST=0.01,0.001,1   MAF cutoffs for combos (max_MAF <= value)"
+    echo "  STEP9_PLOT_UNFILTERED=1|0   include qq + manhattan (all groups, all max_MAF; default 1)"
+    echo "  STEP9_BONFERRONI_MAF_TESTS=N   Manhattan Bonferroni divisor for 0.05/(genes×N), default 3"
+    echo "  STEP9_MANHATTAN_LABEL_TOP_N=N   label top N genes on Manhattan (default 10; interactive can raise)"
+    echo "  STEP9_MANHATTAN_FDR_ALPHA=N      BH-FDR alpha for manhattan_*_fdr.png (default 0.1)"
     echo ""
     echo "Arguments:"
     echo "  1. Operations (required in non-interactive mode)"
@@ -1606,17 +1656,21 @@ op_mandata() {
             ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated_filtered.txt"
         fi
         
-        # Create header with proper column names
-        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup" > "$OUTPUT_DIR/manhattan_plot_data.txt"
-        
+        # Create header (Max_MAF for shape coding on Manhattan plots)
+        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$OUTPUT_DIR/manhattan_plot_data.txt"
+
+        _maf_a=0
+        [ -n "${MAFCOL:-}" ] && _maf_a=$((MAFCOL + 2))
+
         tail -n +2 "$ANNO_WORK_FILE" | \
-            awk -v rcol="$((REGIONCOL+2))" -v gcol="$((GROUPCOL+2))" -v pcol="$((PCOL+2))" -F'\t' '
+            awk -v rcol="$((REGIONCOL+2))" -v gcol="$((GROUPCOL+2))" -v pcol="$((PCOL+2))" -v mafc="$_maf_a" -F'\t' '
             $pcol != "NA" && $pcol != "" && $pcol > 0 {
                 chr = $1
                 pos = $2
                 gene = $rcol
                 group = $gcol
                 pval = $pcol
+                maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
                 
                 # Extract just gene name from region
                 if (gene ~ /:/) {
@@ -1628,14 +1682,14 @@ op_mandata() {
                 # Calculate -log10(p)
                 log10p = -log(pval)/log(10)
                 
-                print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group
+                print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
             }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
         
     else
         echo "  No gene coordinates available, using chromosome from merged data"
         
-        # Create header
-        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup" > "$OUTPUT_DIR/manhattan_plot_data.txt"
+        # Create header (Max_MAF encodes SAIGE mask for point shapes)
+        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$OUTPUT_DIR/manhattan_plot_data.txt"
         
         # Check if CHR column exists in all_results.txt
         HAS_CHR_COL=false
@@ -1647,22 +1701,25 @@ op_mandata() {
             adj_regioncol=$((REGIONCOL+1))
             adj_groupcol=$((GROUPCOL+1))
             adj_pcol=$((PCOL+1))
+            if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$((MAFCOL+1)); else adj_mafcol=0; fi
         else
             echo "  Warning: No CHR information available, using gene index for position"
             adj_regioncol=$REGIONCOL
             adj_groupcol=$GROUPCOL
             adj_pcol=$PCOL
+            if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$MAFCOL; else adj_mafcol=0; fi
         fi
         
         if [ "$HAS_CHR_COL" = true ]; then
             # Use CHR column from data
             tail -n +2 "$WORK_FILE" | \
-                awk -v chrcol="$CHRCOL" -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -F'\t' '
+                awk -v chrcol="$CHRCOL" -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
                 $pcol != "NA" && $pcol != "" && $pcol > 0 {
                     chr = $chrcol
                     gene = $rcol
                     group = $gcol
                     pval = $pcol
+                    maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
                     
                     # Extract gene name from region
                     if (gene ~ /:/) {
@@ -1677,16 +1734,17 @@ op_mandata() {
                     # Use gene index as position
                     pos = NR
                     
-                    print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group
+                    print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
                 }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
         else
             # No CHR info, extract from region or use NA
             tail -n +2 "$WORK_FILE" | \
-                awk -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -F'\t' '
+                awk -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
                 $pcol != "NA" && $pcol != "" && $pcol > 0 {
                     gene = $rcol
                     group = $gcol
                     pval = $pcol
+                    maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
                     
                     # Try to extract chromosome from region
                     chr = "NA"
@@ -1709,7 +1767,7 @@ op_mandata() {
                     # Use gene index as position
                     pos = NR
                     
-                    print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group
+                    print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
                 }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
         fi
     fi
@@ -1717,7 +1775,7 @@ op_mandata() {
     POINTS=$(tail -n +2 "$OUTPUT_DIR/manhattan_plot_data.txt" | wc -l)
     echo "  Generated $POINTS data points"
     echo "  ✓ Saved to: manhattan_plot_data.txt"
-    echo "  Columns: Gene, CHR, POS, Pvalue, NegLog10P, Group"
+    echo "  Columns: Gene, CHR, POS, Pvalue, NegLog10P, Group, Max_MAF"
     echo ""
 }
 
@@ -1750,8 +1808,62 @@ op_makeplots() {
         return 1
     }
 
-    if [ "$PLOT_DO_UNFILTERED" != "1" ] && [ "$PLOT_DO_COMBOS" != "1" ]; then
-        echo "  Note: Both plot modes were off; enabling unfiltered plots (all groups, all MAF)."
+    # Unique genes in merged results (Region column), for Manhattan Bonferroni thresholds
+    N_GENES_MERGED=$(awk -F'\t' -v rc="$REGIONCOL" '
+      NR > 1 && rc >= 1 && rc <= NF {
+        r = $rc
+        if (r == "" || r == "NA") next
+        if (r ~ /:/) {
+          split(r, arr, /:/)
+          r = arr[length(arr)]
+          if (r ~ /^[0-9]+$/) r = $rc
+        }
+        seen[r] = 1
+      }
+      END { n = 0; for (k in seen) n++; print n + 0 }
+    ' "$OUTPUT_DIR/all_results.txt")
+    [ -z "$N_GENES_MERGED" ] && N_GENES_MERGED=0
+    echo "  Unique genes (merged all_results.txt, by Region): $N_GENES_MERGED"
+
+    MANHATTAN_LABEL_TOP_N="${STEP9_MANHATTAN_LABEL_TOP_N:-10}"
+    if [ "$INTERACTIVE" = true ]; then
+        echo "  Manhattan plot: by default the top ${MANHATTAN_LABEL_TOP_N} lowest-P genes are labeled."
+        read -r -p "  Label more genes than that? [y/N] (Enter=no): " ML_MORE
+        case "${ML_MORE:-N}" in
+            y|Y|yes|YES)
+                read -r -p "  Total number of genes to label by name [25]: " MLN
+                if [ -z "${MLN:-}" ]; then
+                    MANHATTAN_LABEL_TOP_N=25
+                elif [ "$MLN" -eq "$MLN" ] 2>/dev/null && [ "$MLN" -gt 0 ]; then
+                    MANHATTAN_LABEL_TOP_N="$MLN"
+                else
+                    echo "  (invalid number; using 25)"
+                    MANHATTAN_LABEL_TOP_N=25
+                fi
+                ;;
+            *) ;;
+        esac
+    fi
+    export STEP9_MANHATTAN_LABEL_TOP_N="$MANHATTAN_LABEL_TOP_N"
+    echo "  Manhattan gene labels (top by P): $MANHATTAN_LABEL_TOP_N"
+
+    MANHATTAN_FDR_ALPHA="${STEP9_MANHATTAN_FDR_ALPHA:-0.1}"
+    if [ "$INTERACTIVE" = true ]; then
+        echo "  Manhattan: two PNGs (Bonferroni thresholds + BH-FDR threshold)."
+        read -r -p "  BH-FDR significance alpha [${MANHATTAN_FDR_ALPHA}]: " FA_IN
+        if [ -n "${FA_IN:-}" ]; then
+            if awk -v a="$FA_IN" 'BEGIN { exit !(a > 0 && a <= 1) }'; then
+                MANHATTAN_FDR_ALPHA="$FA_IN"
+            else
+                echo "  (alpha must be in (0,1]; keeping ${MANHATTAN_FDR_ALPHA})"
+            fi
+        fi
+    fi
+    export STEP9_MANHATTAN_FDR_ALPHA="$MANHATTAN_FDR_ALPHA"
+    echo "  Manhattan BH-FDR alpha (second PNG): $MANHATTAN_FDR_ALPHA"
+
+    if [ "$PLOT_DO_UNFILTERED" != "1" ]; then
+        echo "  Note: Unfiltered plot mode was off; enabling single Manhattan/QQ (all groups, all max_MAF)."
         PLOT_DO_UNFILTERED=1
     fi
 
@@ -1759,6 +1871,10 @@ op_makeplots() {
     cat > "$r_script" << 'RSCRIPT'
 args <- commandArgs(trailingOnly = TRUE)
 legacy <- length(args) < 4
+n_genes_merged <- NA_integer_
+if (!legacy && length(args) >= 5) {
+  n_genes_merged <- suppressWarnings(as.integer(args[5]))
+}
 if (!legacy) {
   out_dir <- args[1]
   tag <- args[2]
@@ -1788,6 +1904,7 @@ plot_qq <- function(inpath, pngpath, mtitle) {
     return(invisible(FALSE))
   }
   png(pngpath, width = 1000, height = 1000, res = 150)
+  graphics::par(bg = "white", col.axis = "gray25", col.lab = "gray20")
   plot(
     qq_data$Expected_log10P, qq_data$Observed_log10P,
     xlab = expression(-log[10](Expected~P)),
@@ -1800,7 +1917,15 @@ plot_qq <- function(inpath, pngpath, mtitle) {
   invisible(TRUE)
 }
 
-plot_man <- function(inpath, pngpath, mtitle, tag) {
+plot_man <- function(
+  inpath,
+  pngpath,
+  mtitle,
+  tag,
+  n_genes_merged = NA_integer_,
+  mt_mode = NULL,
+  write_group_stats = TRUE
+) {
   if (!file.exists(inpath)) {
     return(invisible(FALSE))
   }
@@ -1816,17 +1941,55 @@ plot_man <- function(inpath, pngpath, mtitle, tag) {
     return(invisible(FALSE))
   }
 
+  if (!("Max_MAF" %in% names(man))) {
+    man$Max_MAF <- NA_character_
+  }
+  man$Max_MAF_lab <- ifelse(
+    is.na(man$Max_MAF) | man$Max_MAF == "",
+    "NA",
+    as.character(man$Max_MAF)
+  )
+
+  if (!is.na(n_genes_merged) && !is.na(suppressWarnings(as.integer(n_genes_merged))) &&
+      as.integer(n_genes_merged) > 0L) {
+    n_genes <- as.integer(n_genes_merged)
+  } else {
+    n_genes <- length(unique(man$Gene))
+  }
+  maf_tests <- suppressWarnings(as.numeric(Sys.getenv("STEP9_BONFERRONI_MAF_TESTS", "3")))
+  if (!is.finite(maf_tests) || maf_tests < 1) {
+    maf_tests <- 3
+  }
+  p_bonf_gene <- 0.05 / max(n_genes, 1L)
+  p_bonf_gene_maf <- 0.05 / max(as.numeric(n_genes) * maf_tests, 1)
+  y_bonf_gene <- -log10(p_bonf_gene)
+  y_bonf_maf <- -log10(p_bonf_gene_maf)
+
+  label_n <- suppressWarnings(as.integer(Sys.getenv("STEP9_MANHATTAN_LABEL_TOP_N", "10")))
+  if (is.na(label_n) || label_n < 1L) {
+    label_n <- 10L
+  }
+  bonf_line1 <- sprintf("Orange: 0.05 / %d genes  ~  -log10 = %.3f", n_genes, y_bonf_gene)
+  bonf_line2 <- sprintf(
+    "Green: 0.05 / (%d x %.0f)  ~  -log10 = %.3f",
+    n_genes, maf_tests, y_bonf_maf
+  )
+
   chr_txt <- as.character(man$CHR)
   man$CHR_num <- suppressWarnings(
     as.numeric(ifelse(chr_txt == "X", "23", ifelse(chr_txt == "Y", "24", chr_txt)))
   )
   ok_chr <- !is.na(man$CHR_num) & !(toupper(chr_txt) %in% c("NA", "")) & chr_txt != "NA"
 
+  chr_vlines <- numeric(0)
+  chr_axis_labels <- character(0)
+
   if (sum(ok_chr) == 0) {
     man$CHR_num <- 1L
     man$BP_cum <- seq_len(nrow(man))
     chr_levels <- 1
     midpoints <- median(man$BP_cum)
+    chr_axis_labels <- "1"
   } else {
     man <- man[ok_chr, ]
     if (nrow(man) == 0) {
@@ -1834,65 +1997,248 @@ plot_man <- function(inpath, pngpath, mtitle, tag) {
     }
     man <- man[order(man$CHR_num, man$POS), ]
     chr_levels <- sort(unique(man$CHR_num))
-    starts <- numeric(length(chr_levels))
+    nchr <- length(chr_levels)
+    chr_span <- vapply(chr_levels, function(ch) {
+      mp <- max(man$POS[man$CHR_num == ch], na.rm = TRUE)
+      if (!is.finite(mp) || mp <= 0) {
+        mp <- max(sum(man$CHR_num == ch), 1)
+      }
+      mp
+    }, numeric(1))
+    names(chr_span) <- as.character(chr_levels)
+    total_span <- sum(chr_span)
+    gap <- if (is.finite(total_span) && total_span > 0) {
+      max(total_span * 0.02 / max(nchr, 1L), stats::median(chr_span) * 0.015, 1)
+    } else {
+      1
+    }
+    starts <- numeric(nchr)
     names(starts) <- as.character(chr_levels)
     offset <- 0
     for (i in seq_along(chr_levels)) {
-      chr <- chr_levels[i]
-      starts[as.character(chr)] <- offset
-      mp <- max(man$POS[man$CHR_num == chr], na.rm = TRUE)
-      if (!is.finite(mp) || mp <= 0) {
-        mp <- max(sum(man$CHR_num == chr), 1)
-      }
-      offset <- offset + mp
+      ch <- chr_levels[i]
+      starts[as.character(ch)] <- offset
+      offset <- offset + chr_span[as.character(ch)] + gap
     }
     man$BP_cum <- man$POS + as.numeric(starts[as.character(man$CHR_num)])
-    midpoints <- sapply(chr_levels, function(chr) {
-      idx <- man$CHR_num == chr
+    midpoints <- vapply(chr_levels, function(ch) {
+      idx <- man$CHR_num == ch
       (min(man$BP_cum[idx]) + max(man$BP_cum[idx])) / 2
-    })
+    }, numeric(1))
+    if (nchr > 1L) {
+      chr_vlines <- starts[as.character(chr_levels[-1L])]
+    }
+    chr_axis_labels <- vapply(chr_levels, function(ch) {
+      if (ch == 23L) {
+        "X"
+      } else if (ch == 24L) {
+        "Y"
+      } else {
+        as.character(ch)
+      }
+    }, character(1))
   }
 
-  png(pngpath, width = 1600, height = 800, res = 150)
-  plot(
-    man$BP_cum, man$NegLog10P,
-    xlab = "Chromosome", ylab = expression(-log[10](P)),
-    main = mtitle,
-    pch = 20, cex = 0.6,
-    col = ifelse(man$CHR_num %% 2 == 0, rgb(0, 0, 1, 0.5), rgb(0, 0.5, 1, 0.5)),
-    xaxt = "n"
-  )
-  axis(1, at = midpoints, labels = chr_levels, tick = FALSE)
-  abline(h = -log10(5e-8), col = "red", lwd = 2, lty = 2)
-  abline(h = -log10(1e-5), col = "blue", lwd = 1, lty = 2)
-  legend("topright", legend = c("p < 5e-8", "p < 1e-5"),
-         col = c("red", "blue"), lty = 2, lwd = c(2, 1))
-  top_n <- min(10, nrow(man))
-  if (top_n > 0) {
-    top_genes <- man[order(man$Pvalue), ][1:top_n, ]
-    text(top_genes$BP_cum, top_genes$NegLog10P, labels = top_genes$Gene,
-         pos = 3, cex = 0.6, col = "darkred")
+  if (!is.null(mt_mode) && nzchar(as.character(mt_mode))) {
+    use_fdr <- tolower(trimws(as.character(mt_mode))) %in% c("fdr", "bh")
+  } else {
+    mt_raw <- tolower(trimws(Sys.getenv("STEP9_MANHATTAN_MT_METHOD", "bonferroni")))
+    use_fdr <- mt_raw %in% c("fdr", "bh")
   }
-  safe_dev_off()
+  fdr_alpha <- suppressWarnings(as.numeric(Sys.getenv("STEP9_MANHATTAN_FDR_ALPHA", "0.1")))
+  if (!is.finite(fdr_alpha) || fdr_alpha <= 0 || fdr_alpha > 1) {
+    fdr_alpha <- 0.1
+  }
+
+  m_tests <- nrow(man)
+  bh_crit_p <- NA_real_
+  y_fdr <- NA_real_
+  n_fdr_sig <- 0L
+  if (use_fdr && m_tests >= 1L) {
+    pv <- man$Pvalue
+    q_bh <- stats::p.adjust(pv, "BH")
+    n_fdr_sig <- as.integer(sum(q_bh <= fdr_alpha, na.rm = TRUE))
+    ps <- sort(pv)
+    mlen <- length(ps)
+    thr <- (seq_len(mlen) / mlen) * fdr_alpha
+    ok <- ps <= thr
+    if (any(ok)) {
+      k <- max(which(ok))
+      bh_crit_p <- ps[k]
+      y_fdr <- -log10(bh_crit_p)
+    }
+  }
+  fdr_line1 <- sprintf("BH-FDR (Benjamini-Hochberg): %d plotted tests, alpha=%g", m_tests, fdr_alpha)
+  fdr_line2 <- if (!use_fdr) {
+    ""
+  } else if (is.na(bh_crit_p)) {
+    sprintf("No threshold line (no BH rejections at alpha=%g)", fdr_alpha)
+  } else {
+    sprintf(
+      "Purple: BH gate raw P=%.3g  ~  -log10=%.3f (%d points with BH q <= %g)",
+      bh_crit_p, y_fdr, n_fdr_sig, fdr_alpha
+    )
+  }
+
+  corner_txt <- if (!use_fdr) {
+    paste(bonf_line1, bonf_line2, sep = "\n")
+  } else {
+    paste(fdr_line1, fdr_line2, sep = "\n")
+  }
 
   if (requireNamespace("ggplot2", quietly = TRUE)) {
-    ggp <- paste0("manhattan_by_group_", tag, ".png")
-    gg <- ggplot2::ggplot(man, ggplot2::aes(x = BP_cum, y = NegLog10P, color = Group)) +
-      ggplot2::geom_point(alpha = 0.6, size = 1.5) +
-      ggplot2::geom_hline(yintercept = -log10(5e-8), color = "red", linetype = "dashed") +
-      ggplot2::geom_hline(yintercept = -log10(1e-5), color = "blue", linetype = "dashed") +
-      ggplot2::labs(
-        title = paste("Manhattan by annotation group —", tag),
-        x = "Chromosome", y = expression(-log[10](P))
+    m <- man
+    m$Group <- as.factor(m$Group)
+    m$Max_MAF_lab <- factor(m$Max_MAF_lab)
+    gg <- ggplot2::ggplot(m, ggplot2::aes(
+      x = BP_cum, y = NegLog10P,
+      color = Group, shape = Max_MAF_lab
+    ))
+    if (length(chr_vlines) > 0) {
+      gg <- gg +
+        ggplot2::geom_vline(xintercept = chr_vlines, colour = "grey88", linewidth = 0.35)
+    }
+    gg <- gg +
+      ggplot2::geom_point(alpha = 0.55, size = 0.85, stroke = 0.25)
+
+    if (!use_fdr) {
+      gg <- gg +
+        ggplot2::geom_hline(yintercept = y_bonf_gene, color = "#E69F00", size = 0.55, linetype = "dashed") +
+        ggplot2::geom_hline(yintercept = y_bonf_maf, color = "#009E73", size = 0.55, linetype = "dashed")
+    } else if (is.finite(y_fdr)) {
+      gg <- gg +
+        ggplot2::geom_hline(yintercept = y_fdr, color = "#7570B3", size = 0.55, linetype = "dashed")
+    }
+
+    gg <- gg +
+      ggplot2::scale_x_continuous(
+        breaks = midpoints,
+        labels = chr_axis_labels,
+        expand = ggplot2::expansion(mult = c(0.01, 0.018))
       ) +
-      ggplot2::theme_minimal() +
-      ggplot2::theme(legend.position = "bottom")
-    png(ggp, width = 1600, height = 800, res = 150)
+      ggplot2::labs(
+        title = mtitle,
+        x = "Chromosome",
+        y = expression(-log[10](P)),
+        color = "Annotation group",
+        shape = "max_MAF"
+      ) +
+      ggplot2::guides(x = ggplot2::guide_axis(check.overlap = FALSE)) +
+      ggplot2::theme_bw(base_size = 12) +
+      ggplot2::theme(
+        panel.background = ggplot2::element_rect(fill = "white", colour = NA),
+        plot.background = ggplot2::element_rect(fill = "white", colour = NA),
+        panel.grid.major = ggplot2::element_blank(),
+        panel.grid.minor = ggplot2::element_blank(),
+        panel.border = ggplot2::element_rect(fill = NA, colour = "grey45", linewidth = 0.45),
+        legend.position = "right",
+        legend.justification = "center",
+        legend.box = "vertical",
+        legend.background = ggplot2::element_rect(fill = "white", colour = NA),
+        axis.text.x = ggplot2::element_text(angle = 55, hjust = 1, vjust = 1, colour = "grey15", size = 8),
+        axis.text.y = ggplot2::element_text(colour = "grey15"),
+        plot.title = ggplot2::element_text(face = "bold"),
+        plot.margin = ggplot2::margin(10, 14, 22, 10)
+      )
+
+    m_ord <- m[order(m$Pvalue), , drop = FALSE]
+    top_df <- head(m_ord, min(as.integer(label_n), nrow(m_ord)))
+    if (nrow(top_df) > 0) {
+      if (requireNamespace("ggrepel", quietly = TRUE)) {
+        gg <- gg + ggrepel::geom_text_repel(
+          data = top_df,
+          ggplot2::aes(x = BP_cum, y = NegLog10P, label = Gene),
+          inherit.aes = FALSE,
+          size = 2.6,
+          color = "gray15",
+          segment.size = 0.25,
+          segment.color = "gray45",
+          min.segment.length = 0,
+          max.overlaps = 50,
+          box.padding = 0.35,
+          point.padding = 0.15,
+          show.legend = FALSE
+        )
+      } else {
+        gg <- gg + ggplot2::geom_text(
+          data = top_df,
+          ggplot2::aes(x = BP_cum, y = NegLog10P, label = Gene),
+          inherit.aes = FALSE,
+          size = 2.6,
+          vjust = -0.35,
+          color = "gray15",
+          show.legend = FALSE
+        )
+      }
+    }
+
+    gg <- gg +
+      ggplot2::annotate(
+        "text",
+        x = Inf,
+        y = -Inf,
+        label = corner_txt,
+        hjust = 1,
+        vjust = 0,
+        size = 2.35,
+        lineheight = 1.05,
+        color = "gray38"
+      )
+
+    png(pngpath, width = 1950, height = 950, res = 150)
     print(gg)
+    safe_dev_off()
+  } else {
+    png(pngpath, width = 1950, height = 950, res = 150)
+    ug <- as.factor(man$Group)
+    cols <- grDevices::rainbow(length(levels(ug)))[as.integer(ug)]
+    nm <- length(unique(as.factor(man$Max_MAF_lab)))
+    pchs <- c(16, 17, 15, 18, 8, 3, 4, 10)[as.integer(as.factor(man$Max_MAF_lab))]
+    xr <- range(man$BP_cum)
+    yr <- range(man$NegLog10P)
+    padx <- if (diff(xr) > 0) diff(xr) * 0.012 else 1
+    graphics::par(bg = "white", col.axis = "gray30", col.lab = "gray25")
+    plot(
+      NA_real_,
+      NA_real_,
+      xlim = c(xr[1] - padx, xr[2] + padx),
+      ylim = yr,
+      xlab = "Chromosome",
+      ylab = expression(-log[10](P)),
+      main = mtitle,
+      xaxt = "n",
+      frame.plot = TRUE
+    )
+    if (length(chr_vlines) > 0) {
+      graphics::abline(v = chr_vlines, col = "grey90", lwd = 1)
+    }
+    graphics::points(man$BP_cum, man$NegLog10P, pch = pchs, cex = 0.42, col = cols)
+    graphics::axis(1, at = midpoints, labels = chr_axis_labels, las = 2, tick = TRUE, cex.axis = 0.62)
+    if (!use_fdr) {
+      abline(h = y_bonf_gene, col = "#E69F00", lwd = 2, lty = 2)
+      abline(h = y_bonf_maf, col = "#009E73", lwd = 2, lty = 2)
+    } else if (is.finite(y_fdr)) {
+      abline(h = y_fdr, col = "#7570B3", lwd = 2, lty = 2)
+    }
+    u <- graphics::par("usr")
+    graphics::text(
+      u[2], u[3],
+      labels = corner_txt,
+      adj = c(1, 0),
+      cex = 0.45,
+      col = "gray38",
+      xpd = FALSE
+    )
+    top_n <- min(as.integer(label_n), nrow(man))
+    if (top_n > 0) {
+      top_genes <- man[order(man$Pvalue), ][seq_len(top_n), , drop = FALSE]
+      graphics::text(top_genes$BP_cum, top_genes$NegLog10P, labels = top_genes$Gene,
+           pos = 3, cex = 0.48, col = "gray20")
+    }
     safe_dev_off()
   }
 
-  if (tag == "allGroups_allMaf" || tag == "default") {
+  if (write_group_stats && (tag == "allGroups_allMaf" || tag == "default")) {
     groups <- sort(unique(man$Group))
     stats_list <- lapply(groups, function(g) {
       d <- man[man$Group == g, ]
@@ -1915,22 +2261,30 @@ plot_man <- function(inpath, pngpath, mtitle, tag) {
 }
 
 qq_png <- paste0("qq_plot_", tag, ".png")
-man_png <- paste0("manhattan_plot_", tag, ".png")
+man_png_b <- paste0("manhattan_plot_", tag, "_bonferroni.png")
+man_png_f <- paste0("manhattan_plot_", tag, "_fdr.png")
 plot_qq(qq_fn, qq_png, paste("QQ —", tag))
-plot_man(man_fn, man_png, paste("Manhattan —", tag), tag)
+plot_man(man_fn, man_png_b, paste("Manhattan (Bonferroni) —", tag), tag, n_genes_merged, "bonferroni", TRUE)
+plot_man(man_fn, man_png_f, paste("Manhattan (BH-FDR) —", tag), tag, n_genes_merged, "fdr", FALSE)
 
 if (legacy && file.exists(qq_png)) {
   file.copy(qq_png, "qq_plot.png", overwrite = TRUE)
 }
-if (legacy && file.exists(man_png)) {
-  file.copy(man_png, "manhattan_plot.png", overwrite = TRUE)
+if (legacy && file.exists(man_png_b)) {
+  file.copy(man_png_b, "manhattan_plot.png", overwrite = TRUE)
+}
+if (legacy && file.exists(man_png_f)) {
+  file.copy(man_png_f, "manhattan_plot_fdr.png", overwrite = TRUE)
 }
 if (tag == "allGroups_allMaf") {
   if (file.exists(qq_png)) {
     file.copy(qq_png, "qq_plot.png", overwrite = TRUE)
   }
-  if (file.exists(man_png)) {
-    file.copy(man_png, "manhattan_plot.png", overwrite = TRUE)
+  if (file.exists(man_png_b)) {
+    file.copy(man_png_b, "manhattan_plot.png", overwrite = TRUE)
+  }
+  if (file.exists(man_png_f)) {
+    file.copy(man_png_f, "manhattan_plot_fdr.png", overwrite = TRUE)
   }
 }
 RSCRIPT
@@ -1944,38 +2298,20 @@ RSCRIPT
         echo "  $label"
         op_qqdata
         op_mandata
-        if ! Rscript "$r_script" "$OUTPUT_DIR" "$tag" "qq_plot_data.txt" "manhattan_plot_data.txt"; then
+        if ! Rscript "$r_script" "$OUTPUT_DIR" "$tag" "qq_plot_data.txt" "manhattan_plot_data.txt" "${N_GENES_MERGED:-0}"; then
             echo "    WARNING: R plotting failed for tag=$tag"
             return 1
         fi
         [ -f "$OUTPUT_DIR/qq_plot_${tag}.png" ] && echo "    ✓ qq_plot_${tag}.png"
-        [ -f "$OUTPUT_DIR/manhattan_plot_${tag}.png" ] && echo "    ✓ manhattan_plot_${tag}.png"
-        [ -f "$OUTPUT_DIR/manhattan_by_group_${tag}.png" ] && echo "    ✓ manhattan_by_group_${tag}.png"
+        [ -f "$OUTPUT_DIR/manhattan_plot_${tag}_bonferroni.png" ] && echo "    ✓ manhattan_plot_${tag}_bonferroni.png"
+        [ -f "$OUTPUT_DIR/manhattan_plot_${tag}_fdr.png" ] && echo "    ✓ manhattan_plot_${tag}_fdr.png"
         return 0
     }
 
     if [ "$PLOT_DO_UNFILTERED" = "1" ]; then
         FILTER_GROUP=""
         FILTER_MAF=""
-        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → qq_plot_allGroups_allMaf.png / manhattan_plot_allGroups_allMaf.png"
-    fi
-
-    if [ "$PLOT_DO_COMBOS" = "1" ]; then
-        echo "  Annotation × max_MAF combinations (may take a while)..."
-        local _m
-        IFS=',' read -ra _maf_arr <<< "$PLOT_MAF_CUT_LIST"
-        while IFS= read -r gline; do
-            [ -z "$gline" ] && continue
-            for _m in "${_maf_arr[@]}"; do
-                _m=$(echo "$_m" | tr -d ' ')
-                [ -z "$_m" ] && continue
-                FILTER_GROUP="$gline"
-                FILTER_MAF="$_m"
-                local stg
-                stg="$(plot_slug_group "$gline")_maf$(plot_slug_maf "$_m")"
-                regen_and_plot "$stg" "[Group=$(printf '%s' "$gline" | head -c 60) max_MAF<=$_m] → *_${stg}.png"
-            done
-        done < <(tail -n +2 "$OUTPUT_DIR/all_results.txt" | cut -f"$GROUPCOL" | sort -u)
+        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → qq + manhattan (_bonferroni + _fdr PNGs)"
     fi
 
     FILTER_GROUP="$_fg_save"
@@ -2041,8 +2377,6 @@ run_operation() {
             op_mandata
             ;;
         plotdata)
-            op_qqdata
-            op_mandata
             op_makeplots
             ;;
         makeplots)
@@ -2055,8 +2389,6 @@ run_operation() {
             op_findsig
             op_topgenes 50
             op_groupsum
-            op_qqdata
-            op_mandata
             op_makeplots
             op_fullsum
             ;;
@@ -2071,8 +2403,6 @@ run_operation() {
             op_topgenes 100
             op_chromsum
             op_groupsum
-            op_qqdata
-            op_mandata
             op_makeplots
             op_fullsum
             ;;
@@ -2081,8 +2411,6 @@ run_operation() {
             op_mergeall
             op_listgroups
             op_topgenes 50
-            op_qqdata
-            op_mandata
             op_makeplots
             op_fullsum
             ;;
@@ -2138,7 +2466,7 @@ if [ "$INTERACTIVE" = true ]; then
     fi
     
     # Ask for annotation group filter
-    echo "Example: lof  or  lof;missense  — filters analysis tables (not the same as plot combos below)."
+    echo "Example: lof  or  lof;missense  — filters analysis tables only."
     read -r -p "Filter by annotation group (optional; Enter = no filter): " FILTER_INPUT
     if [ -n "$FILTER_INPUT" ]; then
         FILTER_GROUP="$FILTER_INPUT"
@@ -2152,31 +2480,16 @@ if [ "$INTERACTIVE" = true ]; then
     fi
     
     echo ""
-    echo "--- PNG plots (operations: makeplots, plotdata, quick, standard, full) ---"
-    echo "  Filenames include group + MAF tag, e.g.:"
-    echo "    qq_plot_allGroups_allMaf.png       manhattan_plot_allGroups_allMaf.png"
-    echo "    qq_plot_lof_maf0p01.png           manhattan_plot_lof_maf0p01.png"
-    read -r -p "Include UNFILTERED plots (all annotation groups, all max_MAF)? [Y/n] (Enter=yes): " PU
+    echo "--- PNG plots (makeplots / plotdata): one QQ + one Manhattan (all groups, all max_MAF) ---"
+    echo "  qq_plot_allGroups_allMaf.png"
+    echo "  manhattan_plot_allGroups_allMaf_bonferroni.png   manhattan_plot_allGroups_allMaf_fdr.png"
+    read -r -p "Generate those plots when using plotdata/makeplots? [Y/n] (Enter=yes): " PU
     case "${PU:-Y}" in
         n|N|no|NO)
             PLOT_DO_UNFILTERED=0
             ;;
         *)
             PLOT_DO_UNFILTERED=1
-            ;;
-    esac
-    
-    read -r -p "Also plot every (each Group × each MAF cutoff) combination? [y/N] (Enter=no; can be slow): " PC
-    case "${PC:-N}" in
-        y|Y|yes|YES)
-            PLOT_DO_COMBOS=1
-            echo "Example cutoffs: 0.01,0.001,1  — each keeps rows with max_MAF <= cutoff."
-            read -r -p "  MAF cutoffs (comma-separated) [0.01,0.001,1]: " PML
-            PLOT_MAF_CUT_LIST="${PML:-0.01,0.001,1}"
-            ;;
-        *)
-            PLOT_DO_COMBOS=0
-            PLOT_MAF_CUT_LIST="0.01,0.001,1"
             ;;
     esac
     
@@ -2193,12 +2506,6 @@ fi
 # Plot defaults from environment when not set interactively
 if [ -z "${PLOT_DO_UNFILTERED:-}" ]; then
     PLOT_DO_UNFILTERED="${STEP9_PLOT_UNFILTERED:-1}"
-fi
-if [ -z "${PLOT_DO_COMBOS:-}" ]; then
-    PLOT_DO_COMBOS="${STEP9_PLOT_COMBOS:-0}"
-fi
-if [ -z "${PLOT_MAF_CUT_LIST:-}" ]; then
-    PLOT_MAF_CUT_LIST="${STEP9_PLOT_MAF_LIST:-0.01,0.001,1}"
 fi
 
 # Normalize user inputs
@@ -2233,7 +2540,7 @@ fi
 if [ -n "$FILTER_MAF" ]; then
     echo "Filtering by max_MAF <= $FILTER_MAF"
 fi
-echo "PNG plot options (makeplots): unfiltered=$PLOT_DO_UNFILTERED  group×MAF combos=$PLOT_DO_COMBOS  MAF list=$PLOT_MAF_CUT_LIST"
+echo "PNG plots (makeplots): single QQ + Manhattan (all groups × all max_MAF), unfiltered=$PLOT_DO_UNFILTERED"
 echo ""
 
 for op in "${OPS[@]}"; do
@@ -2272,7 +2579,7 @@ echo "Primary outputs:"
 echo "  - analysis_summary.txt"
 echo "  - top50_genes.txt"
 echo "  - qq_plot_data.txt and manhattan_plot_data.txt"
-echo "  - qq_plot.png and manhattan_plot.png (when Rscript is available)"
+echo "  - qq_plot.png; manhattan_plot.png = Bonferroni; manhattan_plot_fdr.png = BH-FDR (when Rscript is available)"
 echo ""
 
 if [ -f "$OUTPUT_DIR/annotation_groups.txt" ]; then
