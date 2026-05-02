@@ -224,8 +224,7 @@ EOF
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
 # │   ├── saige_run.log
-# │   └── step9_analyze_results.sh
-# └── codes/*.sh                 # Pipeline scripts
+# └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh)
 ```
 
 ---
@@ -348,7 +347,15 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 
 **Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, etc.). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
 
-**Optional dependencies:** `python3` (Ensembl REST lookups), `Rscript` (PNG QQ/Manhattan; **`ggplot2`** optional for some figures), **`certifi`** on macOS if Ensembl TLS fails.
+**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `OPERATIONS`, `PRESET`, etc.); runs `step9_analyze_results.sh` from the same directory. Example:
+
+```bash
+chmod +x codes/step9_noninteractive_example.sh
+RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
+# Equivalent: STEP9_RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
+```
+
+**Optional dependencies:** `python3` (Ensembl REST lookups), `Rscript` (PNG QQ/Manhattan; **`ggplot2`** / **`ggrepel`** optional), **`certifi`** on macOS if Ensembl TLS fails.
 
 **Non-interactive** (flags first, then positionals):
 
@@ -367,13 +374,13 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 | `coord_source` | **`sequence`** or **`ensembl`** when no coords file |
 | `ensembl_build` | **`37`** or **`38`** with **`ensembl`** |
 
-**Plot env:** **`STEP9_PLOT_UNFILTERED`**, **`STEP9_PLOT_COMBOS`**, **`STEP9_PLOT_MAF_LIST`**, **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback).
+**Plot env:** **`STEP9_PLOT_UNFILTERED`**, **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_FDR_ALPHA`**, **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). **`STEP9_BONFERRONI_MAF_TESTS`** — divisor for the stricter Bonferroni line on Manhattan plots (default **`3`**). **Ensembl REST tuning:** **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
 
 **Presets (abbrev.):** **`standard`** → mergeall, listgroups, findsig, top50, groupsum, qq/mandata, **makeplots**, fullsum. **`full`** / **`quick`** expand or shorten that chain (see script).
 
 **Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** (= qq + man + **makeplots**).
 
-**Artifacts:** `all_results.txt`, significance tiers, `top*_genes.txt`, `qq_plot*.png`, `manhattan_plot*.png`, `analysis_summary.txt`; helpers `.gene_coords_lookup.txt`, `.step9_generate_plots.R`.
+**Artifacts:** `all_results.txt`, significance tiers, `top*_genes.txt`, `qq_plot*.png`, `manhattan_plot*_bonferroni.png` / `manhattan_plot*_fdr.png` (and legacy `manhattan_plot.png` / `manhattan_plot_fdr.png`), `analysis_summary.txt`; helpers `.gene_coords_lookup.txt`, `.step9_generate_plots.R`.
 
 ```bash
 # Interactive (menu + prompts)
@@ -512,4 +519,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.0.0 | Last updated: 2026-04-28*
+*Version 2.0.2 | Last updated: 2026-05-01*
