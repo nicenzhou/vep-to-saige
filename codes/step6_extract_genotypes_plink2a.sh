@@ -583,7 +583,7 @@ for chr in {1..22} X Y; do
                     fi
                     
                     if [ -f "${OUTPUT_PREFIX}.log" ]; then
-                        VARS_OUTPUT=$(grep -i "variants written" "${OUTPUT_PREFIX}.log" | grep -oP '\d+' | head -1 || echo "NA")
+                        VARS_OUTPUT=$(grep -i "variants written" "${OUTPUT_PREFIX}.log" | head -1 | grep -Eo '[0-9]+' | head -1 || echo "NA")
                     fi
                     
                     if command -v bgenix &> /dev/null; then

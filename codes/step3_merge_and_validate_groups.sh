@@ -168,7 +168,7 @@ if [ -f "$OUTPUT" ]; then
     echo "" >&2
     
     # Count unique genes
-    UNIQUE_GENES=$(awk '{print $1}' "$OUTPUT" | sort -u | wc -l)
+    UNIQUE_GENES=$(awk 'NR%2==1 {print $1}' "$OUTPUT" | sort -u | wc -l)
     echo "Unique gene symbols: $UNIQUE_GENES" >&2
     
     # Annotation breakdown (for space-delimited format)

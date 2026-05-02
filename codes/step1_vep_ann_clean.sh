@@ -205,20 +205,22 @@ if [ -f "$OUTPUT" ]; then
     echo "  Output size: $FILE_SIZE" >&2
     
     echo "  Group breakdown:" >&2
-    awk -F'\t' 'NR>1 {print $6}' "$OUTPUT" | sort | uniq -c | sort -rn | while read count group; do
+    awk -F'\t' 'NR>1 { c[$6]++ } END { for (g in c) print c[g] "\t" g }' "$OUTPUT" | \
+        sort -t$'\t' -k1,1nr -k2,2 | while IFS=$'\t' read -r count group; do
         echo "    $group: $count" >&2
     done
-    
+
     if [ "$LOF_MODE" != "loftee_only" ]; then
         echo "  LoF group detail:" >&2
-        awk -F'\t' 'NR>1 && $6=="lof" {print $4}' "$OUTPUT" | sort | uniq -c | sort -rn | while read count lof_val; do
+        awk -F'\t' 'NR>1 && $6=="lof" { d[$4]++ } END { for (v in d) print d[v] "\t" v }' "$OUTPUT" | \
+            sort -t$'\t' -k1,1nr -k2,2 | while IFS=$'\t' read -r count lof_val; do
             lof_label=$lof_val
             [ "$lof_val" = "." ] && lof_label="VEP_only"
             [ "$lof_val" = "HC" ] && lof_label="LOFTEE_HC"
             echo "    $lof_label: $count" >&2
         done
     fi
-    
+
     echo "  Output file: $OUTPUT" >&2
 else
     echo "[$(date)] Error: Output file was not created!" >&2

@@ -133,8 +133,11 @@ if [[ ! "$MERGE_REGEN" =~ ^(yes|no)$ ]]; then
     exit 1
 fi
 
-# Check for coordinate files
-COORD_COUNT=$(find "$GENE_COORDS_DIR" -name "chr*_genes.txt" -type f | wc -l)
+# Count coordinate files (faster than find|wc for typical trees)
+shopt -s nullglob
+_coord=( "$GENE_COORDS_DIR"/chr*_genes.txt )
+COORD_COUNT=${#_coord[@]}
+shopt -u nullglob
 if [ "$COORD_COUNT" -eq 0 ]; then
     echo "ERROR: No chr*_genes.txt files found in $GENE_COORDS_DIR" >&2
     exit 1
@@ -227,75 +230,50 @@ for COORD_FILE in "$GENE_COORDS_DIR"/chr*_genes.txt; do
     
     echo "  Processing chr${CHR}..."
     
-    # Match genes for this chromosome
-    awk -F'\t' -v genes_file="$OUTPUT_DIR/genes_in_groups.txt" '
+    # One awk pass: filter wanted genes, append to matched_genes, write BED + gene list (no temp .txt)
+    MREG="$OUTPUT_DIR/matched_genes.txt"
+    RFILE="$OUTPUT_DIR/chr${CHR}_regions.txt"
+    GLIST="$OUTPUT_DIR/chr${CHR}_gene_list.txt"
+    rm -f "$RFILE" "$GLIST"
+
+    awk -F'\t' -v genesf="$OUTPUT_DIR/genes_in_groups.txt" -v mreg="$MREG" -v rfile="$RFILE" -v glistf="$GLIST" \
+        -v buffer_k="$BUFFER_KB" -v chrname="$CHR" '
     BEGIN {
-        # Load genes to match
-        while ((getline < genes_file) > 0) {
-            wanted[$1] = 1
-        }
-        close(genes_file)
+        while ((getline < genesf) > 0) { gsub(/\r/, "", $0); if ($0 != "") wanted[$0] = 1 }
+        close(genesf)
+        buffer_bp = buffer_k * 1000
     }
-    
-    NR==1 {next}  # Skip header line
-    
+    NR == 1 { next }
     {
-        gene = $1
-        if (gene in wanted) {
-            print $0
-            matched[gene] = 1
-        }
+        g = $1
+        if (!(g in wanted)) next
+        print $0 >> mreg
+        gene_id = $2
+        start = $4 - buffer_bp
+        end = $5 + buffer_bp
+        if (start < 1) start = 1
+        bed_start = start - 1
+        if (bed_start < 0) bed_start = 0
+        print chrname "\t" bed_start "\t" end "\t" g "\t" gene_id >> rfile
+        print g >> glistf
     }
-    ' "$COORD_FILE" > "$OUTPUT_DIR/chr${CHR}_matched_temp.txt"
-    
-    MATCHED=$(wc -l < "$OUTPUT_DIR/chr${CHR}_matched_temp.txt")
-    
-    if [ "$MATCHED" -gt 0 ]; then
+    ' "$COORD_FILE"
+
+    if [ -s "$RFILE" ]; then
+        MATCHED=$(wc -l < "$RFILE")
         TOTAL_MATCHED=$((TOTAL_MATCHED + MATCHED))
-        
-        # Append to all matched genes
-        cat "$OUTPUT_DIR/chr${CHR}_matched_temp.txt" >> "$OUTPUT_DIR/matched_genes.txt"
-        
-        # Create PLINK2 region file with buffer in BED format
-        awk -F'\t' -v buffer="$BUFFER_KB" -v chr="$CHR" '
-        BEGIN {
-            buffer_bp = buffer * 1000
-        }
-        {
-            gene = $1
-            gene_id = $2
-            start = $4 - buffer_bp
-            end = $5 + buffer_bp
-            
-            # Ensure start is not negative
-            if (start < 1) start = 1
-            
-            # BED format: chr start end gene gene_id
-            # Note: BED uses 0-based start, 1-based end
-            # Adjust start to 0-based
-            bed_start = start - 1
-            if (bed_start < 0) bed_start = 0
-            
-            # Output: chr start(0-based) end(1-based) gene gene_id
-            print chr "\t" bed_start "\t" end "\t" gene "\t" gene_id
-        }
-        ' "$OUTPUT_DIR/chr${CHR}_matched_temp.txt" > "$OUTPUT_DIR/chr${CHR}_regions.txt"
-        
-        # Create simple gene list
-        cut -f1 "$OUTPUT_DIR/chr${CHR}_matched_temp.txt" > "$OUTPUT_DIR/chr${CHR}_gene_list.txt"
-        
-        REGION_COUNT=$(wc -l < "$OUTPUT_DIR/chr${CHR}_regions.txt")
-        
+        REGION_COUNT=$MATCHED
         echo "    ✓ Matched: $MATCHED genes → $REGION_COUNT regions"
         printf "%-5s %-12s %-12s %-12s\n" "$CHR" "$MATCHED" "$REGION_COUNT" "Success" >> "$SUMMARY_FILE"
     else
         echo "    ✗ Matched: 0 genes (skipped)"
         printf "%-5s %-12s %-12s %-12s\n" "$CHR" "0" "0" "No matches" >> "$SUMMARY_FILE"
+        rm -f "$RFILE" "$GLIST"
     fi
-    
-    # Cleanup temp file
-    rm -f "$OUTPUT_DIR/chr${CHR}_matched_temp.txt"
 done
+
+# Gene rows matched from Ensembl coordinates only (before optional regeneration)
+TOTAL_FROM_COORDS_ONLY=$TOTAL_MATCHED
 
 echo ""
 
@@ -571,7 +549,7 @@ fi
         echo "Match rate:           $(awk -v m="$TOTAL_MATCHED" -v t="$TOTAL_IN_GROUPS" 'BEGIN {printf "%.2f%%", (m/t)*100}')"
     else
         # In separate mode, show different breakdown
-        MATCHED_FROM_COORDS=$TOTAL_MATCHED
+        MATCHED_FROM_COORDS=$TOTAL_FROM_COORDS_ONLY
         echo "Genes from coordinates: $MATCHED_FROM_COORDS"
         if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
             echo "Genes regenerated:      $TOTAL_REGENERATED (saved separately)"
@@ -601,7 +579,7 @@ if [ "$MERGE_REGEN" = "yes" ]; then
     fi
     echo "Genes missing:        $TOTAL_MISSING"
 else
-    MATCHED_FROM_COORDS=$TOTAL_MATCHED
+    MATCHED_FROM_COORDS=$TOTAL_FROM_COORDS_ONLY
     echo "Genes from coordinates: $MATCHED_FROM_COORDS"
     if [ "$FORCE_REGEN" = "yes" ] && [ "$TOTAL_REGENERATED" -gt 0 ]; then
         echo "Genes regenerated:      $TOTAL_REGENERATED (in *_recovered.txt files)"
@@ -655,7 +633,7 @@ echo "  Summary files:"
 if [ "$MERGE_REGEN" = "yes" ]; then
     printf "    %-35s %6s genes\n" "matched_genes.txt" "$TOTAL_MATCHED"
 else
-    printf "    %-35s %6s genes\n" "matched_genes.txt" "$MATCHED_FROM_COORDS"
+    printf "    %-35s %6s genes\n" "matched_genes.txt" "$TOTAL_FROM_COORDS_ONLY"
 fi
 
 printf "    %-35s %6s genes\n" "missing_genes.txt" "$TOTAL_MISSING"

@@ -224,8 +224,7 @@ EOF
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
 # │   ├── saige_run.log
-# │   └── step9_analyze_results.sh
-# └── codes/*.sh                 # Pipeline scripts
+# └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh)
 ```
 
 ---
@@ -256,6 +255,8 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 6 | `step6_extract_genotypes_plink2a.sh` | Extract cohort genotypes per gene region |
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + Step 2 |
+
+**Performance (recent versions):** Step **4** builds per-chromosome tables in **one pass** over `all_genes_coords.txt` (not one full scan per chromosome). Step **5** does **one `awk` per chromosome** for filter + BED + gene list (no large temp “matched” files). Step **1** stderr summaries use **awk counts + one numeric sort** per table instead of `sort | uniq -c` on every row. Step **3** “unique genes” uses **var lines only** (`NR%2==1`). Step **6** BGEN log parsing avoids GNU-only `grep -P` (portable on macOS).
 
 ### Step 1 — `step1_vep_ann_clean.sh`
 
@@ -297,7 +298,7 @@ Merges **`chr*_groups.txt`** in genomic order. Auto-detects **`chr1`** vs **`chr
 ./codes/step4_download_gene_coords.sh [ensembl_release] [GRCh38|GRCh37] [out_dir]
 ```
 
-Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**. Writes `all_genes_coords.txt`, per-chr `chr{n}_genes.txt`, removes downloaded GTF, then **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF file is **`Homo_sapiens.GRCh37.<release>.gtf.gz`** matching **`ensembl_release`**.
+Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**. Writes `all_genes_coords.txt`, then **splits by chromosome in a single read** of that file, removes downloaded GTF, then **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF file is **`Homo_sapiens.GRCh37.<release>.gtf.gz`** matching **`ensembl_release`**.
 
 ### Step 5 — `step5_match_genes_to_groups.sh`
 
@@ -311,7 +312,7 @@ Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**
 | `force_regen` | `no` | If `yes`, infer intervals from variant positions when symbol missing from coords |
 | `merge_regen` | `yes` | Merge recovered genes into main **`chr*_regions.txt`** vs separate **`*_recovered.txt`** |
 
-Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_genes.txt`**, **`matching_summary.txt`**, log under **`out_dir`**.
+Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_genes.txt`**, **`matching_summary.txt`**, log under **`out_dir`**. Matching and BED construction share **one pass** over each coordinate file (no per-chr temp match file).
 
 ### Step 6 — `step6_extract_genotypes_plink2a.sh`
 
@@ -346,7 +347,15 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 
 **Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, etc.). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
 
-**Optional dependencies:** `python3` (Ensembl REST lookups), `Rscript` (PNG QQ/Manhattan; **`ggplot2`** optional for some figures), **`certifi`** on macOS if Ensembl TLS fails.
+**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `OPERATIONS`, `PRESET`, etc.); runs `step9_analyze_results.sh` from the same directory. Example:
+
+```bash
+chmod +x codes/step9_noninteractive_example.sh
+RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
+# Equivalent: STEP9_RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
+```
+
+**Optional dependencies:** `python3` (Ensembl REST lookups), `Rscript` (PNG QQ/Manhattan; **`ggplot2`** / **`ggrepel`** optional), **`certifi`** on macOS if Ensembl TLS fails.
 
 **Non-interactive** (flags first, then positionals):
 
@@ -365,13 +374,13 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 | `coord_source` | **`sequence`** or **`ensembl`** when no coords file |
 | `ensembl_build` | **`37`** or **`38`** with **`ensembl`** |
 
-**Plot env:** **`STEP9_PLOT_UNFILTERED`**, **`STEP9_PLOT_COMBOS`**, **`STEP9_PLOT_MAF_LIST`**, **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback).
+**Plot env:** **`STEP9_PLOT_UNFILTERED`**, **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_FDR_ALPHA`**, **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). **`STEP9_BONFERRONI_MAF_TESTS`** — divisor for the stricter Bonferroni line on Manhattan plots (default **`3`**). **Ensembl REST tuning:** **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
 
 **Presets (abbrev.):** **`standard`** → mergeall, listgroups, findsig, top50, groupsum, qq/mandata, **makeplots**, fullsum. **`full`** / **`quick`** expand or shorten that chain (see script).
 
 **Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** (= qq + man + **makeplots**).
 
-**Artifacts:** `all_results.txt`, significance tiers, `top*_genes.txt`, `qq_plot*.png`, `manhattan_plot*.png`, `analysis_summary.txt`; helpers `.gene_coords_lookup.txt`, `.step9_generate_plots.R`.
+**Artifacts:** `all_results.txt`, significance tiers, `top*_genes.txt`, `qq_plot*.png`, `manhattan_plot*_bonferroni.png` / `manhattan_plot*_fdr.png` (and legacy `manhattan_plot.png` / `manhattan_plot_fdr.png`), `analysis_summary.txt`; helpers `.gene_coords_lookup.txt`, `.step9_generate_plots.R`.
 
 ```bash
 # Interactive (menu + prompts)
@@ -510,4 +519,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 1.0.0 | Last updated: 2026-04-28*
+*Version 2.0.2 | Last updated: 2026-05-01*

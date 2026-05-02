@@ -88,35 +88,40 @@ $ZCAT_CMD "$OUTPUT_DIR/ensembl.gtf.gz" | \
   ' > "$OUTPUT_DIR/all_genes_coords.txt"
 
 #==========================================
-# Split by chromosome
+# Split by chromosome (single pass: O(n) instead of n_chr × file scans)
 #==========================================
 
 echo "Splitting by chromosome..." >&2
 
-# Create header file
-head -1 "$OUTPUT_DIR/all_genes_coords.txt" > "$OUTPUT_DIR/header.txt"
+# One pass over all_genes_coords.txt: header from line 1, then route each row to chr*_genes.txt
+$AWK_CMD -F'\t' -v outdir="$OUTPUT_DIR" '
+FNR == 1 { hdr = $0; next }
+{
+  chr = $3
+  fn = outdir "/chr" chr "_genes.txt"
+  if (!(fn in seen)) {
+    print hdr > fn
+    seen[fn] = 1
+  }
+  print >> fn
+}
+END {
+  for (f in seen) close(f)
+}
+' "$OUTPUT_DIR/all_genes_coords.txt" || { echo "Error: split-by-chr awk failed" >&2; exit 1; }
 
-# Split by chromosome (1-22, X, Y, MT)
-for chr in {1..22} X Y MT; do
-  OUTPUT_FILE="$OUTPUT_DIR/chr${chr}_genes.txt"
-  
-  # Add header
-  cat "$OUTPUT_DIR/header.txt" > "$OUTPUT_FILE"
-  
-  # Extract chromosome
-  $AWK_CMD -F'\t' -v chr="$chr" 'NR>1 && $3==chr' "$OUTPUT_DIR/all_genes_coords.txt" >> "$OUTPUT_FILE"
-  
-  if [ -s "$OUTPUT_FILE" ]; then
-    GENE_COUNT=$(tail -n +2 "$OUTPUT_FILE" | wc -l)
-    echo "  chr${chr}: $GENE_COUNT genes" >&2
-  else
-    rm "$OUTPUT_FILE"
+# Drop empty files, print per-file gene counts
+for cfile in "$OUTPUT_DIR"/chr*_genes.txt; do
+  [ -f "$cfile" ] || continue
+  body_lines=$($AWK_CMD 'END{ if (NR < 2) print 0; else print NR - 1 }' "$cfile")
+  if [ "${body_lines:-0}" -eq 0 ]; then
+    rm -f "$cfile"
+    continue
   fi
+  echo "  $(basename "$cfile"): $body_lines genes" >&2
 done
 
-# Cleanup
-rm "$OUTPUT_DIR/header.txt"
-rm "$OUTPUT_DIR/ensembl.gtf.gz"
+rm -f "$OUTPUT_DIR/ensembl.gtf.gz"
 
 #==========================================
 # Summary and packaging
