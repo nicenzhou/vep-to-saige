@@ -48,6 +48,30 @@ finalize_results_directory() {
     OUTPUT_DIR="$(cd "$rf" && pwd)"
 }
 
+# Interactive y/n: accepts Y,y,N,n,yes,no,YES,NO,YEs,yeS,... ; empty uses second arg default (y or n).
+step9_prompt_is_yes() {
+    local raw="${1-}"
+    local default="${2:-n}"
+    local s
+    s=$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    if [ -z "$s" ]; then
+        [ "$default" = "y" ]
+        return
+    fi
+    case "$s" in
+        y|yes)
+            return 0
+            ;;
+        n|no)
+            return 1
+            ;;
+        *)
+            [ "$default" = "y" ]
+            return
+            ;;
+    esac
+}
+
 print_startup_banner() {
     echo "=========================================="
     echo "SAIGE-GENE Results Analysis Tool"
@@ -852,7 +876,7 @@ show_menu() {
     echo ""
     echo "Plot PNG options (makeplots / plotdata; non-interactive):"
     echo "  STEP9_PLOT_UNFILTERED=1|0   include qq + manhattan (all groups, all max_MAF; default 1)"
-    echo "  STEP9_BONFERRONI_MAF_TESTS=N   Manhattan Bonferroni divisor for 0.05/(genes×N), default 3"
+    echo "  STEP9_BONFERRONI_MAF_TESTS=N   Manhattan Bonferroni divisor for 0.05/(genes x N), default 3"
     echo "  STEP9_MANHATTAN_LABEL_TOP_N=N   label top N genes on Manhattan (default 10; interactive can raise)"
     echo "  STEP9_MANHATTAN_FDR_ALPHA=N      BH-FDR alpha for manhattan_*_fdr.png (default 0.1)"
     echo ""
@@ -1828,21 +1852,18 @@ op_makeplots() {
     MANHATTAN_LABEL_TOP_N="${STEP9_MANHATTAN_LABEL_TOP_N:-10}"
     if [ "$INTERACTIVE" = true ]; then
         echo "  Manhattan plot: by default the top ${MANHATTAN_LABEL_TOP_N} lowest-P genes are labeled."
-        read -r -p "  Label more genes than that? [y/N] (Enter=no): " ML_MORE
-        case "${ML_MORE:-N}" in
-            y|Y|yes|YES)
-                read -r -p "  Total number of genes to label by name [25]: " MLN
-                if [ -z "${MLN:-}" ]; then
-                    MANHATTAN_LABEL_TOP_N=25
-                elif [ "$MLN" -eq "$MLN" ] 2>/dev/null && [ "$MLN" -gt 0 ]; then
-                    MANHATTAN_LABEL_TOP_N="$MLN"
-                else
-                    echo "  (invalid number; using 25)"
-                    MANHATTAN_LABEL_TOP_N=25
-                fi
-                ;;
-            *) ;;
-        esac
+        read -r -p "  Label more genes than that? [y/n] (Enter=no): " ML_MORE
+        if step9_prompt_is_yes "$ML_MORE" "n"; then
+            read -r -p "  Total number of genes to label by name [25]: " MLN
+            if [ -z "${MLN:-}" ]; then
+                MANHATTAN_LABEL_TOP_N=25
+            elif [ "$MLN" -eq "$MLN" ] 2>/dev/null && [ "$MLN" -gt 0 ]; then
+                MANHATTAN_LABEL_TOP_N="$MLN"
+            else
+                echo "  (invalid number; using 25)"
+                MANHATTAN_LABEL_TOP_N=25
+            fi
+        fi
     fi
     export STEP9_MANHATTAN_LABEL_TOP_N="$MANHATTAN_LABEL_TOP_N"
     echo "  Manhattan gene labels (top by P): $MANHATTAN_LABEL_TOP_N"
@@ -2053,11 +2074,16 @@ plot_man <- function(
   m_tests <- nrow(man)
   bh_crit_p <- NA_real_
   y_fdr <- NA_real_
+  y_fdr_weak <- NA_real_
   n_fdr_sig <- 0L
   if (use_fdr && m_tests >= 1L) {
     pv <- man$Pvalue
     q_bh <- stats::p.adjust(pv, "BH")
     n_fdr_sig <- as.integer(sum(q_bh <= fdr_alpha, na.rm = TRUE))
+    sig_ok <- !is.na(q_bh) & q_bh <= fdr_alpha
+    if (any(sig_ok)) {
+      y_fdr_weak <- -log10(max(pv[sig_ok], na.rm = TRUE))
+    }
     ps <- sort(pv)
     mlen <- length(ps)
     thr <- (seq_len(mlen) / mlen) * fdr_alpha
@@ -2072,11 +2098,15 @@ plot_man <- function(
   fdr_line2 <- if (!use_fdr) {
     ""
   } else if (is.na(bh_crit_p)) {
-    sprintf("No threshold line (no BH rejections at alpha=%g)", fdr_alpha)
+    sprintf("No BH rejection gate at alpha=%g (no dashed line).", fdr_alpha)
   } else {
+    weak_extra <- ""
+    if (is.finite(y_fdr_weak) && (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)) {
+      weak_extra <- sprintf(" Solid purple: weakest FDR-significant hit −log10=%.3f.", y_fdr_weak)
+    }
     sprintf(
-      "Purple: BH gate raw P=%.3g  ~  -log10=%.3f (%d points with BH q <= %g)",
-      bh_crit_p, y_fdr, n_fdr_sig, fdr_alpha
+      "Dashed purple: BH gate −log10=%.3f (%d tests with BH q<=%g).%s",
+      y_fdr, n_fdr_sig, fdr_alpha, weak_extra
     )
   }
 
@@ -2105,9 +2135,24 @@ plot_man <- function(
       gg <- gg +
         ggplot2::geom_hline(yintercept = y_bonf_gene, color = "#E69F00", size = 0.55, linetype = "dashed") +
         ggplot2::geom_hline(yintercept = y_bonf_maf, color = "#009E73", size = 0.55, linetype = "dashed")
-    } else if (is.finite(y_fdr)) {
-      gg <- gg +
-        ggplot2::geom_hline(yintercept = y_fdr, color = "#7570B3", size = 0.55, linetype = "dashed")
+    } else {
+      if (is.finite(y_fdr)) {
+        gg <- gg +
+          ggplot2::geom_hline(yintercept = y_fdr, color = "#7570B3", size = 0.55, linetype = "dashed")
+      }
+      if (
+        is.finite(y_fdr_weak) &&
+          (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)
+      ) {
+        gg <- gg +
+          ggplot2::geom_hline(
+            yintercept = y_fdr_weak,
+            color = "#542788",
+            size = 0.5,
+            linetype = "solid",
+            alpha = 0.9
+          )
+      }
     }
 
     gg <- gg +
@@ -2121,7 +2166,8 @@ plot_man <- function(
         x = "Chromosome",
         y = expression(-log[10](P)),
         color = "Annotation group",
-        shape = "max_MAF"
+        shape = "max_MAF",
+        caption = corner_txt
       ) +
       ggplot2::guides(x = ggplot2::guide_axis(check.overlap = FALSE)) +
       ggplot2::theme_bw(base_size = 12) +
@@ -2138,7 +2184,14 @@ plot_man <- function(
         axis.text.x = ggplot2::element_text(angle = 55, hjust = 1, vjust = 1, colour = "grey15", size = 8),
         axis.text.y = ggplot2::element_text(colour = "grey15"),
         plot.title = ggplot2::element_text(face = "bold"),
-        plot.margin = ggplot2::margin(10, 14, 22, 10)
+        plot.caption = ggplot2::element_text(
+          size = 7,
+          lineheight = 1.12,
+          hjust = 0,
+          colour = "gray35",
+          margin = ggplot2::margin(t = 10)
+        ),
+        plot.margin = ggplot2::margin(10, 14, 14, 10)
       )
 
     m_ord <- m[order(m$Pvalue), , drop = FALSE]
@@ -2172,19 +2225,6 @@ plot_man <- function(
       }
     }
 
-    gg <- gg +
-      ggplot2::annotate(
-        "text",
-        x = Inf,
-        y = -Inf,
-        label = corner_txt,
-        hjust = 1,
-        vjust = 0,
-        size = 2.35,
-        lineheight = 1.05,
-        color = "gray38"
-      )
-
     png(pngpath, width = 1950, height = 950, res = 150)
     print(gg)
     safe_dev_off()
@@ -2197,7 +2237,12 @@ plot_man <- function(
     xr <- range(man$BP_cum)
     yr <- range(man$NegLog10P)
     padx <- if (diff(xr) > 0) diff(xr) * 0.012 else 1
-    graphics::par(bg = "white", col.axis = "gray30", col.lab = "gray25")
+    graphics::par(
+      bg = "white",
+      col.axis = "gray30",
+      col.lab = "gray25",
+      mar = c(10, 4, 4, 4) + 0.1
+    )
     plot(
       NA_real_,
       NA_real_,
@@ -2217,18 +2262,18 @@ plot_man <- function(
     if (!use_fdr) {
       abline(h = y_bonf_gene, col = "#E69F00", lwd = 2, lty = 2)
       abline(h = y_bonf_maf, col = "#009E73", lwd = 2, lty = 2)
-    } else if (is.finite(y_fdr)) {
-      abline(h = y_fdr, col = "#7570B3", lwd = 2, lty = 2)
+    } else {
+      if (is.finite(y_fdr)) {
+        abline(h = y_fdr, col = "#7570B3", lwd = 2, lty = 2)
+      }
+      if (
+        is.finite(y_fdr_weak) &&
+          (!is.finite(y_fdr) || abs(y_fdr_weak - y_fdr) > 1e-7)
+      ) {
+        abline(h = y_fdr_weak, col = "#542788", lwd = 2, lty = 1)
+      }
     }
-    u <- graphics::par("usr")
-    graphics::text(
-      u[2], u[3],
-      labels = corner_txt,
-      adj = c(1, 0),
-      cex = 0.45,
-      col = "gray38",
-      xpd = FALSE
-    )
+    graphics::title(sub = corner_txt, line = 6.5, cex.sub = 0.48, col.sub = "gray35")
     top_n <- min(as.integer(label_n), nrow(man))
     if (top_n > 0) {
       top_genes <- man[order(man$Pvalue), ][seq_len(top_n), , drop = FALSE]
@@ -2483,15 +2528,12 @@ if [ "$INTERACTIVE" = true ]; then
     echo "--- PNG plots (makeplots / plotdata): one QQ + one Manhattan (all groups, all max_MAF) ---"
     echo "  qq_plot_allGroups_allMaf.png"
     echo "  manhattan_plot_allGroups_allMaf_bonferroni.png   manhattan_plot_allGroups_allMaf_fdr.png"
-    read -r -p "Generate those plots when using plotdata/makeplots? [Y/n] (Enter=yes): " PU
-    case "${PU:-Y}" in
-        n|N|no|NO)
-            PLOT_DO_UNFILTERED=0
-            ;;
-        *)
-            PLOT_DO_UNFILTERED=1
-            ;;
-    esac
+    read -r -p "Generate those plots when using plotdata/makeplots? [y/n] (Enter=yes): " PU
+    if step9_prompt_is_yes "$PU" "y"; then
+        PLOT_DO_UNFILTERED=1
+    else
+        PLOT_DO_UNFILTERED=0
+    fi
     
     echo ""
     echo "Examples: standard | quick | plotdata | mergeall+findsig+top50"
@@ -2533,14 +2575,14 @@ fi
 # Parse and execute operations
 IFS='+' read -ra OPS <<< "$OPERATIONS"
 
-echo "Executing operations: ${OPS[*]}"
+printf 'Executing operations: %s\n' "${OPS[*]}"
 if [ -n "$FILTER_GROUP" ]; then
-    echo "Filtering by annotation group: $FILTER_GROUP"
+    printf 'Filtering by annotation group: %s\n' "$FILTER_GROUP"
 fi
 if [ -n "$FILTER_MAF" ]; then
-    echo "Filtering by max_MAF <= $FILTER_MAF"
+    printf 'Filtering by max_MAF <= %s\n' "$FILTER_MAF"
 fi
-echo "PNG plots (makeplots): single QQ + Manhattan (all groups × all max_MAF), unfiltered=$PLOT_DO_UNFILTERED"
+printf '%s\n' "PNG plots (makeplots): single QQ + Manhattan, all groups x all max_MAF, unfiltered=${PLOT_DO_UNFILTERED}"
 echo ""
 
 for op in "${OPS[@]}"; do

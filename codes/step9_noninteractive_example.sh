@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# step9.2_noninteractive_example.sh — non-interactive wrapper for step9_analyze_results.sh
+# step9_noninteractive_example.sh — non-interactive wrapper for step9_analyze_results.sh
 #
 # Edit the CONFIG section below, then run:
-#   chmod +x step9.2_noninteractive_example.sh
-#   ./step9.2_noninteractive_example.sh
+#   chmod +x step9_noninteractive_example.sh
+#   ./step9_noninteractive_example.sh
 #
 # Or override from the shell without editing:
-#   RESULTS_DIR=/path/to/out PRESET=quick ./step9.2_noninteractive_example.sh
-#   # Same as: STEP9_RESULTS_DIR=/path/to/out PRESET=quick ./step9.2_noninteractive_example.sh
+#   RESULTS_DIR=/path/to/out PRESET=quick ./step9_noninteractive_example.sh
+#   # Same as: STEP9_RESULTS_DIR=/path/to/out PRESET=quick ./step9_noninteractive_example.sh
 #
 
 set -euo pipefail
@@ -135,7 +135,7 @@ if [ ! -f "${STEP9_SCRIPT}" ]; then
 fi
 
 echo "=========================================="
-echo "step9 non-interactive example (step9.2)"
+echo "step9 non-interactive example"
 echo "=========================================="
 echo "STEP9_SCRIPT:  ${STEP9_SCRIPT}"
 echo "RESULTS_DIR:   ${RESULTS_DIR}"
