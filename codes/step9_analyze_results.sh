@@ -1098,8 +1098,10 @@ get_columns() {
     # Find Group column (annotation)
     GROUPCOL=$(echo "$HEADER" | tr '\t' '\n' | grep -n -E '^Group$' | cut -d: -f1 | head -1)
     
-    # Find Pvalue column (combined p-value)
+    # Find P-value columns (SAIGE-GENE: combined, burden, SKAT)
     PCOL=$(echo "$HEADER" | tr '\t' '\n' | grep -n -E '^Pvalue$' | cut -d: -f1 | head -1)
+    PCOL_BURDEN=$(echo "$HEADER" | tr '\t' '\n' | grep -n -E '^Pvalue_Burden$' | cut -d: -f1 | head -1)
+    PCOL_SKAT=$(echo "$HEADER" | tr '\t' '\n' | grep -n -E '^Pvalue_SKAT$' | cut -d: -f1 | head -1)
     
     # Find max_MAF column
     MAFCOL=$(echo "$HEADER" | tr '\t' '\n' | grep -n -E '^max_MAF$' | cut -d: -f1 | head -1)
@@ -1125,6 +1127,10 @@ get_columns() {
     echo "  Region column: $REGIONCOL (gene name)"
     echo "  Group column: $GROUPCOL (annotation)"
     echo "  P-value column: $PCOL (Pvalue)"
+    [ -n "${PCOL_BURDEN:-}" ] && echo "  P-value column: $PCOL_BURDEN (Pvalue_Burden)"
+    [ -n "${PCOL_SKAT:-}" ] && echo "  P-value column: $PCOL_SKAT (Pvalue_SKAT)"
+    [ -z "${PCOL_BURDEN:-}" ] && echo "  (no Pvalue_Burden column)"
+    [ -z "${PCOL_SKAT:-}" ] && echo "  (no Pvalue_SKAT column)"
     [ -n "$MAFCOL" ] && echo "  max_MAF column: $MAFCOL"
     [ -n "$MACCOL" ] && echo "  MAC column: $MACCOL"
 }
@@ -1155,16 +1161,17 @@ step9_result_row_count() {
     tail -n +2 "$file" | wc -l | tr -d ' '
 }
 
-# Unique genes with ≥1 row where Pvalue < thr (strict).
+# Unique genes with ≥1 row where P at column pcol < thr (strict). Optional 3rd arg = P column index (defaults to PCOL).
 step9_unique_genes_p_lt_file() {
     local file="$1"
     local thr="$2"
+    local pcol_use="${3:-${PCOL:-}}"
     [ ! -f "$file" ] && echo 0 && return
-    if [ -z "${REGIONCOL:-}" ] || [ -z "${PCOL:-}" ]; then
+    if [ -z "${REGIONCOL:-}" ] || [ -z "${pcol_use:-}" ]; then
         echo 0
         return
     fi
-    awk -F'\t' -v rc="$REGIONCOL" -v pcol="$PCOL" -v thr="$thr" '
+    awk -F'\t' -v rc="$REGIONCOL" -v pcol="$pcol_use" -v thr="$thr" '
       NR > 1 && rc >= 1 && rc <= NF && pcol >= 1 && pcol <= NF {
         r = $rc
         if (r == "" || r == "NA") next
@@ -1179,6 +1186,126 @@ step9_unique_genes_p_lt_file() {
       }
       END { n = 0; for (k in seen) n++; print n + 0 }
     ' "$file"
+}
+
+# QQ/Manhattan P column: pvalue | burden | skat | all (env STEP9_MANHATTAN_P_MODE)
+step9_normalize_manhattan_p_mode_from_env() {
+    local raw="${STEP9_MANHATTAN_P_MODE:-pvalue}"
+    raw=$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    case "$raw" in
+        ''|pvalue|combined|joint|p) raw=pvalue ;;
+        burden|b|pvalue_burden|pvburden) raw=burden ;;
+        skat|s|pvalue_skat|pvskat) raw=skat ;;
+        all|triple|three) raw=all ;;
+        *)
+            echo "  WARNING: Unknown STEP9_MANHATTAN_P_MODE='$STEP9_MANHATTAN_P_MODE'; using pvalue."
+            raw=pvalue
+            ;;
+    esac
+    STEP9_MANHATTAN_P_MODE="$raw"
+}
+
+# Tab-separated lines: APCOL, file_suffix (_burden / _skat / ""), title_tag
+step9_manhattan_all_targets_lines() {
+    [ -n "${PCOL:-}" ] && printf '%s\t%s\t%s\n' "$PCOL" "" "Pvalue"
+    [ -n "${PCOL_BURDEN:-}" ] && printf '%s\t%s\t%s\n' "$PCOL_BURDEN" "_burden" "Pvalue_Burden"
+    [ -n "${PCOL_SKAT:-}" ] && printf '%s\t%s\t%s\n' "$PCOL_SKAT" "_skat" "Pvalue_SKAT"
+}
+
+# With get_columns already run: set STEP9_*_RESOLVED for single-target modes; return 2 if mode is "all" (caller should loop)
+step9_resolve_single_manhattan_target() {
+    step9_normalize_manhattan_p_mode_from_env
+    local mode="${STEP9_MANHATTAN_P_MODE:-pvalue}"
+    case "$mode" in
+        all)
+            return 2
+            ;;
+        pvalue)
+            STEP9_ACTIVE_PCOL_RESOLVED="$PCOL"
+            STEP9_FILE_SUFFIX_RESOLVED=""
+            STEP9_PLOT_TITLE_TAG_RESOLVED="Pvalue"
+            ;;
+        burden)
+            if [ -z "${PCOL_BURDEN:-}" ]; then
+                echo "  ERROR: Pvalue_Burden column not found (cannot use STEP9_MANHATTAN_P_MODE=burden)."
+                return 1
+            fi
+            STEP9_ACTIVE_PCOL_RESOLVED="$PCOL_BURDEN"
+            STEP9_FILE_SUFFIX_RESOLVED="_burden"
+            STEP9_PLOT_TITLE_TAG_RESOLVED="Pvalue_Burden"
+            ;;
+        skat)
+            if [ -z "${PCOL_SKAT:-}" ]; then
+                echo "  ERROR: Pvalue_SKAT column not found (cannot use STEP9_MANHATTAN_P_MODE=skat)."
+                return 1
+            fi
+            STEP9_ACTIVE_PCOL_RESOLVED="$PCOL_SKAT"
+            STEP9_FILE_SUFFIX_RESOLVED="_skat"
+            STEP9_PLOT_TITLE_TAG_RESOLVED="Pvalue_SKAT"
+            ;;
+    esac
+    return 0
+}
+
+# Matches .step9_generate_plots.R naming: qq_plot_data[_suffix].txt → qq_plot[_suffix].png
+step9_expected_png_from_qq_data_path() {
+    local base="${1##*/}"
+    base="${base%.txt}"
+    local r="${base#qq_plot_data}"
+    [ -z "$r" ] && echo "qq_plot.png" || echo "qq_plot${r}.png"
+}
+
+step9_expected_png_from_manhattan_data_path() {
+    local base="${1##*/}"
+    base="${base%.txt}"
+    local r="${base#manhattan_plot_data}"
+    [ -z "$r" ] && echo "manhattan_plot.png" || echo "manhattan_plot${r}.png"
+}
+
+__step9_qq_emit() {
+    local APCOL="$1"
+    local QQ_OUT="$2"
+
+    step9_tail_results_body() {
+        if step9_cauchy_exclude_plots; then
+            tail -n +2 "$WORK_FILE" | awk -v gcol="$GROUPCOL" -F'\t' 'tolower($gcol) != "cauchy"'
+        else
+            tail -n +2 "$WORK_FILE"
+        fi
+    }
+
+    QQ_N=$(step9_tail_results_body | awk -v pcol="$APCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0' | wc -l | tr -d ' ')
+
+    step9_tail_results_body | \
+        awk -v pcol="$APCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
+        sort -g | \
+        awk -v total="$QQ_N" 'BEGIN {
+            print "Expected_log10P\tObserved_log10P"
+        } {
+            obs = -log($1)/log(10)
+            expected = -log((NR-0.5)/total)/log(10)
+            print expected "\t" obs
+        }' > "$QQ_OUT"
+
+    local POINTS
+    POINTS=$(tail -n +2 "$QQ_OUT" | wc -l)
+    echo "  Generated $POINTS data points → $(basename "$QQ_OUT") (column $APCOL)"
+
+    LAMBDA=$(step9_tail_results_body | \
+        awk -v pcol="$APCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
+        sort -g | \
+        awk 'BEGIN{n=0} {a[n++]=$1} END{
+            if (n > 0) {
+                median_p = a[int(n/2)]
+                chi2 = -2 * log(median_p)
+                lambda = chi2 / 0.4549364
+                printf "%.4f", lambda
+            }
+        }')
+
+    if [ -n "$LAMBDA" ]; then
+        echo "  Genomic inflation λ (from $(basename "$QQ_OUT")): $LAMBDA"
+    fi
 }
 
 #==========================================
@@ -1433,6 +1560,29 @@ op_findsig() {
     P001_COUNT=$(tail -n +2 "$OUTPUT_DIR/sig_p001.txt" | wc -l | tr -d ' ')
     P001_GENES=$(step9_unique_genes_p_lt_file "$WORK_FILE" "0.01")
     echo "  P < 0.01:                $P001_GENES unique genes ($P001_COUNT result rows)"
+
+    if [ -n "${PCOL_BURDEN:-}" ]; then
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/genome_wide_sig_burden.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig_burden.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/suggestive_sig_burden.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig_burden.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/nominal_sig_burden.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig_burden.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/sig_p001_burden.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001_burden.txt"
+        echo "  Pvalue_Burden: also wrote genome_wide_sig_burden.txt, suggestive_sig_burden.txt, nominal_sig_burden.txt, sig_p001_burden.txt"
+    fi
+    if [ -n "${PCOL_SKAT:-}" ]; then
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/genome_wide_sig_skat.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' >> "$OUTPUT_DIR/genome_wide_sig_skat.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/suggestive_sig_skat.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' >> "$OUTPUT_DIR/suggestive_sig_skat.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/nominal_sig_skat.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' >> "$OUTPUT_DIR/nominal_sig_skat.txt"
+        head -1 "$WORK_FILE" > "$OUTPUT_DIR/sig_p001_skat.txt"
+        tail -n +2 "$WORK_FILE" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' >> "$OUTPUT_DIR/sig_p001_skat.txt"
+        echo "  Pvalue_SKAT: also wrote genome_wide_sig_skat.txt, suggestive_sig_skat.txt, nominal_sig_skat.txt, sig_p001_skat.txt"
+    fi
     
     echo "  ✓ Significance filtering complete"
     echo ""
@@ -1745,6 +1895,29 @@ op_fullsum() {
     SUG_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "1e-5")
     NOM_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.05")
     P001_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.01")
+
+    GWSB_COUNT=0 SUGB_COUNT=0 NOMB_COUNT=0 P001B_COUNT=0 GWSB_GENES=0 SUGB_GENES=0 NOMB_GENES=0 P001B_GENES=0
+    GWSS_COUNT=0 SUGS_COUNT=0 NOMS_COUNT=0 P001S_COUNT=0 GWSS_GENES=0 SUGS_GENES=0 NOMS_GENES=0 P001S_GENES=0
+    if [ -n "${PCOL_BURDEN:-}" ]; then
+        GWSB_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+        SUGB_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+        NOMB_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+        P001B_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_BURDEN" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
+        GWSB_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "5e-8" "$PCOL_BURDEN")
+        SUGB_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "1e-5" "$PCOL_BURDEN")
+        NOMB_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.05" "$PCOL_BURDEN")
+        P001B_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.01" "$PCOL_BURDEN")
+    fi
+    if [ -n "${PCOL_SKAT:-}" ]; then
+        GWSS_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 5e-8' | wc -l | tr -d ' ')
+        SUGS_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 1e-5' | wc -l | tr -d ' ')
+        NOMS_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.05' | wc -l | tr -d ' ')
+        P001S_COUNT=$(tail -n +2 "$SUM_SRC" | awk -v pcol="$PCOL_SKAT" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol < 0.01' | wc -l | tr -d ' ')
+        GWSS_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "5e-8" "$PCOL_SKAT")
+        SUGS_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "1e-5" "$PCOL_SKAT")
+        NOMS_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.05" "$PCOL_SKAT")
+        P001S_GENES=$(step9_unique_genes_p_lt_file "$SUM_SRC" "0.01" "$PCOL_SKAT")
+    fi
     
     {
         echo "=========================================="
@@ -1777,7 +1950,8 @@ op_fullsum() {
         echo "Unique genes tested (distinct Region): $UNIQUE_GENES_TOTAL"
         echo "Result rows (gene × group × MAF tests): $TOTAL_ROWS"
         echo ""
-        echo "Significance thresholds  (unique genes are primary; rows are SAIGE test lines):"
+        echo "Significance thresholds — Pvalue (combined)"
+        echo "  (unique genes are primary; rows are SAIGE test lines)"
         echo "  Gene % = unique genes at threshold / unique genes tested."
         echo "  Row %  = result rows at threshold / total result rows (reference)."
         echo "----------------------------------------"
@@ -1788,6 +1962,29 @@ op_fullsum() {
         printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "P < 0.01" "$P001_GENES" "$(awk -v g="$P001_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$P001_COUNT" "$(awk -v g="$P001_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
         printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Nominal (p < 0.05)" "$NOM_GENES" "$(awk -v g="$NOM_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$NOM_COUNT" "$(awk -v g="$NOM_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
         echo ""
+
+        if [ -n "${PCOL_BURDEN:-}" ]; then
+            echo "Significance thresholds — Pvalue_Burden"
+            echo "----------------------------------------"
+            printf "  %-26s %14s %9s %8s %9s\n" "Threshold" "Unique genes" "Gene %" "Rows" "Row %"
+            echo "----------------------------------------"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Genome-wide (p < 5e-8)" "$GWSB_GENES" "$(awk -v g="$GWSB_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$GWSB_COUNT" "$(awk -v g="$GWSB_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Suggestive (p < 1e-5)" "$SUGB_GENES" "$(awk -v g="$SUGB_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$SUGB_COUNT" "$(awk -v g="$SUGB_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "P < 0.01" "$P001B_GENES" "$(awk -v g="$P001B_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$P001B_COUNT" "$(awk -v g="$P001B_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Nominal (p < 0.05)" "$NOMB_GENES" "$(awk -v g="$NOMB_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$NOMB_COUNT" "$(awk -v g="$NOMB_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            echo ""
+        fi
+        if [ -n "${PCOL_SKAT:-}" ]; then
+            echo "Significance thresholds — Pvalue_SKAT"
+            echo "----------------------------------------"
+            printf "  %-26s %14s %9s %8s %9s\n" "Threshold" "Unique genes" "Gene %" "Rows" "Row %"
+            echo "----------------------------------------"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Genome-wide (p < 5e-8)" "$GWSS_GENES" "$(awk -v g="$GWSS_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$GWSS_COUNT" "$(awk -v g="$GWSS_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Suggestive (p < 1e-5)" "$SUGS_GENES" "$(awk -v g="$SUGS_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$SUGS_COUNT" "$(awk -v g="$SUGS_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "P < 0.01" "$P001S_GENES" "$(awk -v g="$P001S_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$P001S_COUNT" "$(awk -v g="$P001S_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            printf "  %-26s %14s %8.2f%% %8s %8.2f%%\n" "Nominal (p < 0.05)" "$NOMS_GENES" "$(awk -v g="$NOMS_GENES" -v u="$UNIQUE_GENES_TOTAL" 'BEGIN { if (u+0<=0) printf "0.00"; else printf "%.2f", (g/u)*100 }')" "$NOMS_COUNT" "$(awk -v g="$NOMS_COUNT" -v t="$TOTAL_ROWS" 'BEGIN { if (t+0<=0) printf "0.00"; else printf "%.2f", (g/t)*100 }')"
+            echo ""
+        fi
         
         echo "Annotation groups  (unique genes per group; result rows in parentheses):"
         echo "----------------------------------------"
@@ -1842,8 +2039,20 @@ op_fullsum() {
         if [ -f "$OUTPUT_DIR/qq_plot_data.txt" ]; then
             echo "  ✓ qq_plot_data.txt"
         fi
+        if [ -f "$OUTPUT_DIR/qq_plot_data_burden.txt" ]; then
+            echo "  ✓ qq_plot_data_burden.txt"
+        fi
+        if [ -f "$OUTPUT_DIR/qq_plot_data_skat.txt" ]; then
+            echo "  ✓ qq_plot_data_skat.txt"
+        fi
         if [ -f "$OUTPUT_DIR/manhattan_plot_data.txt" ]; then
             echo "  ✓ manhattan_plot_data.txt"
+        fi
+        if [ -f "$OUTPUT_DIR/manhattan_plot_data_burden.txt" ]; then
+            echo "  ✓ manhattan_plot_data_burden.txt"
+        fi
+        if [ -f "$OUTPUT_DIR/manhattan_plot_data_skat.txt" ]; then
+            echo "  ✓ manhattan_plot_data_skat.txt"
         fi
         echo ""
         echo "=========================================="
@@ -1872,57 +2081,35 @@ op_qqdata() {
     get_columns "$OUTPUT_DIR/all_results.txt"
     echo ""
     
-    # Apply filters if specified
     WORK_FILE="$OUTPUT_DIR/all_results.txt"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
         apply_filters "$OUTPUT_DIR/all_results.txt" "$WORK_FILE" "$FILTER_GROUP" "$FILTER_MAF"
         echo ""
     fi
-    
-    step9_tail_results_body() {
-        if step9_cauchy_exclude_plots; then
-            tail -n +2 "$WORK_FILE" | awk -v gcol="$GROUPCOL" -F'\t' 'tolower($gcol) != "cauchy"'
-        else
-            tail -n +2 "$WORK_FILE"
-        fi
-    }
-    
-    QQ_N=$(step9_tail_results_body | awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0' | wc -l | tr -d ' ')
-    
-    step9_tail_results_body | \
-        awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
-        sort -g | \
-        awk -v total="$QQ_N" 'BEGIN {
-            print "Expected_log10P\tObserved_log10P"
-        } {
-            obs = -log($1)/log(10)
-            expected = -log((NR-0.5)/total)/log(10)
-            print expected "\t" obs
-        }' > "$OUTPUT_DIR/qq_plot_data.txt"
-    
-    POINTS=$(tail -n +2 "$OUTPUT_DIR/qq_plot_data.txt" | wc -l)
-    echo "  Generated $POINTS data points"
-    echo "  ✓ Saved to: qq_plot_data.txt"
-    echo ""
-    
-    # Calculate genomic inflation factor (lambda)
-    LAMBDA=$(step9_tail_results_body | \
-        awk -v pcol="$PCOL" -F'\t' '$pcol != "NA" && $pcol != "" && $pcol > 0 {print $pcol}' | \
-        sort -g | \
-        awk 'BEGIN{n=0} {a[n++]=$1} END{
-            if (n > 0) {
-                median_p = a[int(n/2)]
-                chi2 = -2 * log(median_p)
-                lambda = chi2 / 0.4549364
-                printf "%.4f", lambda
-            }
-        }')
-    
-    if [ -n "$LAMBDA" ]; then
-        echo "  Genomic Inflation Factor (λ): $LAMBDA"
+
+    if [ -n "${STEP9_ACTIVE_PCOL:-}" ]; then
+        __step9_qq_emit "$STEP9_ACTIVE_PCOL" "$OUTPUT_DIR/qq_plot_data${STEP9_QQ_OUT_SUFFIX:-}.txt"
         echo ""
+        return 0
     fi
+
+    step9_normalize_manhattan_p_mode_from_env
+    if [ "${STEP9_MANHATTAN_P_MODE:-pvalue}" = "all" ]; then
+        while IFS=$'\t' read -r ap suf _tag; do
+            [ -z "$ap" ] && continue
+            __step9_qq_emit "$ap" "$OUTPUT_DIR/qq_plot_data${suf}.txt"
+        done < <(step9_manhattan_all_targets_lines)
+        echo ""
+        return 0
+    fi
+
+    if step9_resolve_single_manhattan_target; then
+        __step9_qq_emit "$STEP9_ACTIVE_PCOL_RESOLVED" "$OUTPUT_DIR/qq_plot_data${STEP9_FILE_SUFFIX_RESOLVED}.txt"
+    else
+        return 1
+    fi
+    echo ""
 }
 
 #==========================================
@@ -1943,7 +2130,6 @@ op_mandata() {
     get_columns "$OUTPUT_DIR/all_results.txt"
     echo ""
     
-    # Apply filters if specified
     WORK_FILE="$OUTPUT_DIR/all_results.txt"
     if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
         WORK_FILE="$OUTPUT_DIR/all_results_filtered.txt"
@@ -1960,160 +2146,165 @@ op_mandata() {
             tail -n +2 "$_wf"
         fi
     }
-    
-    # Check if we have annotated file with coordinates
-    if [ -f "$OUTPUT_DIR/all_results_annotated.txt" ] && [ -f "$OUTPUT_DIR/.gene_coords_lookup.txt" ]; then
-        echo "  Using gene coordinates from annotation file"
-        
-        # Use annotated file
-        ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated.txt"
-        
-        # Apply filters to annotated file if needed
-        if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
-            get_columns "$ANNO_WORK_FILE" > /dev/null 2>&1
-            
-            head -1 "$ANNO_WORK_FILE" > "$OUTPUT_DIR/all_results_annotated_filtered.txt"
-            
-            # Adjust column numbers for annotated file (CHR and POS are prepended)
-            local adj_groupcol=$((GROUPCOL+2))
-            local adj_pcol=$((PCOL+2))
-            local adj_mafcol=""
-            [ -n "$MAFCOL" ] && adj_mafcol=$((MAFCOL+2))
-            
-            # Build filter
-            local filter_cmd='NR > 1'
-            if [ -n "$FILTER_GROUP" ]; then
-                filter_cmd="$filter_cmd && \$$adj_groupcol == \"$FILTER_GROUP\""
-            fi
-            if [ -n "$FILTER_MAF" ] && [ -n "$adj_mafcol" ]; then
-                filter_cmd="$filter_cmd && \$$adj_mafcol != \"NA\" && \$$adj_mafcol <= $FILTER_MAF"
-            fi
-            
-            _mand_tail "$ANNO_WORK_FILE" "$adj_groupcol" | awk -F'\t' "$filter_cmd" >> "$OUTPUT_DIR/all_results_annotated_filtered.txt"
-            ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated_filtered.txt"
-        fi
-        
-        # Create header (Max_MAF for shape coding on Manhattan plots)
-        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$OUTPUT_DIR/manhattan_plot_data.txt"
 
-        _maf_a=0
-        [ -n "${MAFCOL:-}" ] && _maf_a=$((MAFCOL + 2))
+    __mand_emit_one() {
+        local APCOL="$1"
+        local M_OUT="$2"
 
-        _mand_tail "$ANNO_WORK_FILE" "$((GROUPCOL+2))" | \
-            awk -v rcol="$((REGIONCOL+2))" -v gcol="$((GROUPCOL+2))" -v pcol="$((PCOL+2))" -v mafc="$_maf_a" -F'\t' '
-            $pcol != "NA" && $pcol != "" && $pcol > 0 {
-                chr = $1
-                pos = $2
-                gene = $rcol
-                group = $gcol
-                pval = $pcol
-                maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
+        if [ -f "$OUTPUT_DIR/all_results_annotated.txt" ] && [ -f "$OUTPUT_DIR/.gene_coords_lookup.txt" ]; then
+            echo "  Using gene coordinates from annotation file (P column index $APCOL → $(basename "$M_OUT"))"
+            
+            ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated.txt"
+            
+            if [ -n "$FILTER_GROUP" ] || [ -n "$FILTER_MAF" ]; then
+                get_columns "$ANNO_WORK_FILE" > /dev/null 2>&1
                 
-                # Extract just gene name from region
-                if (gene ~ /:/) {
-                    split(gene, arr, /:/)
-                    gene = arr[length(arr)]
-                    if (gene ~ /^[0-9]+$/) gene = $rcol
-                }
+                head -1 "$ANNO_WORK_FILE" > "$OUTPUT_DIR/all_results_annotated_filtered.txt"
                 
-                # Calculate -log10(p)
-                log10p = -log(pval)/log(10)
+                local adj_groupcol=$((GROUPCOL+2))
+                local adj_mafcol=""
+                [ -n "$MAFCOL" ] && adj_mafcol=$((MAFCOL+2))
                 
-                print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
-            }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
-        
-    else
-        echo "  No gene coordinates available, using chromosome from merged data"
-        
-        # Create header (Max_MAF encodes SAIGE mask for point shapes)
-        echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$OUTPUT_DIR/manhattan_plot_data.txt"
-        
-        # Check if CHR column exists in all_results.txt
-        HAS_CHR_COL=false
-        if head -1 "$WORK_FILE" | grep -q "^CHR"; then
-            HAS_CHR_COL=true
-            echo "  Using CHR column from merged results"
-            # Adjust column indices
-            CHRCOL=1
-            adj_regioncol=$((REGIONCOL+1))
-            adj_groupcol=$((GROUPCOL+1))
-            adj_pcol=$((PCOL+1))
-            if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$((MAFCOL+1)); else adj_mafcol=0; fi
-        else
-            echo "  Warning: No CHR information available, using gene index for position"
-            adj_regioncol=$REGIONCOL
-            adj_groupcol=$GROUPCOL
-            adj_pcol=$PCOL
-            if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$MAFCOL; else adj_mafcol=0; fi
-        fi
-        
-        if [ "$HAS_CHR_COL" = true ]; then
-            # Use CHR column from data
-            _mand_tail "$WORK_FILE" "$adj_groupcol" | \
-                awk -v chrcol="$CHRCOL" -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
+                local filter_cmd='NR > 1'
+                if [ -n "$FILTER_GROUP" ]; then
+                    filter_cmd="$filter_cmd && \$$adj_groupcol == \"$FILTER_GROUP\""
+                fi
+                if [ -n "$FILTER_MAF" ] && [ -n "$adj_mafcol" ]; then
+                    filter_cmd="$filter_cmd && \$$adj_mafcol != \"NA\" && \$$adj_mafcol <= $FILTER_MAF"
+                fi
+                
+                _mand_tail "$ANNO_WORK_FILE" "$adj_groupcol" | awk -F'\t' "$filter_cmd" >> "$OUTPUT_DIR/all_results_annotated_filtered.txt"
+                ANNO_WORK_FILE="$OUTPUT_DIR/all_results_annotated_filtered.txt"
+            fi
+            
+            echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$M_OUT"
+
+            _maf_a=0
+            [ -n "${MAFCOL:-}" ] && _maf_a=$((MAFCOL + 2))
+
+            _mand_tail "$ANNO_WORK_FILE" "$((GROUPCOL+2))" | \
+                awk -v rcol="$((REGIONCOL+2))" -v gcol="$((GROUPCOL+2))" -v pcol="$((APCOL+2))" -v mafc="$_maf_a" -F'\t' '
                 $pcol != "NA" && $pcol != "" && $pcol > 0 {
-                    chr = $chrcol
+                    chr = $1
+                    pos = $2
                     gene = $rcol
                     group = $gcol
                     pval = $pcol
                     maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
                     
-                    # Extract gene name from region
                     if (gene ~ /:/) {
                         split(gene, arr, /:/)
                         gene = arr[length(arr)]
                         if (gene ~ /^[0-9]+$/) gene = $rcol
                     }
                     
-                    # Calculate -log10(p)
                     log10p = -log(pval)/log(10)
                     
-                    # Use gene index as position
-                    pos = NR
-                    
                     print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
-                }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
+                }' >> "$M_OUT"
+            
         else
-            # No CHR info, extract from region or use NA
-            _mand_tail "$WORK_FILE" "$adj_groupcol" | \
-                awk -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
-                $pcol != "NA" && $pcol != "" && $pcol > 0 {
-                    gene = $rcol
-                    group = $gcol
-                    pval = $pcol
-                    maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
-                    
-                    # Try to extract chromosome from region
-                    chr = "NA"
-                    if ($rcol ~ /^chr/) {
-                        split($rcol, arr, /:/)
-                        chr = arr[1]
-                        gsub("chr", "", chr)
-                    }
-                    
-                    # Extract gene name from region
-                    if (gene ~ /:/) {
-                        split(gene, arr, /:/)
-                        gene = arr[length(arr)]
-                        if (gene ~ /^[0-9]+$/) gene = $rcol
-                    }
-                    
-                    # Calculate -log10(p)
-                    log10p = -log(pval)/log(10)
-                    
-                    # Use gene index as position
-                    pos = NR
-                    
-                    print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
-                }' >> "$OUTPUT_DIR/manhattan_plot_data.txt"
+            echo "  No gene coordinates available, using chromosome from merged data ($(basename "$M_OUT"))"
+            
+            echo -e "Gene\tCHR\tPOS\tPvalue\tNegLog10P\tGroup\tMax_MAF" > "$M_OUT"
+            
+            HAS_CHR_COL=false
+            if head -1 "$WORK_FILE" | grep -q "^CHR"; then
+                HAS_CHR_COL=true
+                echo "  Using CHR column from merged results"
+                CHRCOL=1
+                adj_regioncol=$((REGIONCOL+1))
+                adj_groupcol=$((GROUPCOL+1))
+                adj_pcol=$((APCOL+1))
+                if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$((MAFCOL+1)); else adj_mafcol=0; fi
+            else
+                echo "  Warning: No CHR information available, using gene index for position"
+                adj_regioncol=$REGIONCOL
+                adj_groupcol=$GROUPCOL
+                adj_pcol=$APCOL
+                if [ -n "${MAFCOL:-}" ]; then adj_mafcol=$MAFCOL; else adj_mafcol=0; fi
+            fi
+            
+            if [ "$HAS_CHR_COL" = true ]; then
+                _mand_tail "$WORK_FILE" "$adj_groupcol" | \
+                    awk -v chrcol="$CHRCOL" -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
+                    $pcol != "NA" && $pcol != "" && $pcol > 0 {
+                        chr = $chrcol
+                        gene = $rcol
+                        group = $gcol
+                        pval = $pcol
+                        maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
+                        
+                        if (gene ~ /:/) {
+                            split(gene, arr, /:/)
+                            gene = arr[length(arr)]
+                            if (gene ~ /^[0-9]+$/) gene = $rcol
+                        }
+                        
+                        log10p = -log(pval)/log(10)
+                        pos = NR
+                        
+                        print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
+                    }' >> "$M_OUT"
+            else
+                _mand_tail "$WORK_FILE" "$adj_groupcol" | \
+                    awk -v rcol="$adj_regioncol" -v gcol="$adj_groupcol" -v pcol="$adj_pcol" -v mafc="$adj_mafcol" -F'\t' '
+                    $pcol != "NA" && $pcol != "" && $pcol > 0 {
+                        gene = $rcol
+                        group = $gcol
+                        pval = $pcol
+                        maf = (mafc > 0 && mafc <= NF) ? $mafc : "NA"
+                        
+                        chr = "NA"
+                        if ($rcol ~ /^chr/) {
+                            split($rcol, arr, /:/)
+                            chr = arr[1]
+                            gsub("chr", "", chr)
+                        }
+                        
+                        if (gene ~ /:/) {
+                            split(gene, arr, /:/)
+                            gene = arr[length(arr)]
+                            if (gene ~ /^[0-9]+$/) gene = $rcol
+                        }
+                        
+                        log10p = -log(pval)/log(10)
+                        pos = NR
+                        
+                        print gene "\t" chr "\t" pos "\t" pval "\t" log10p "\t" group "\t" maf
+                    }' >> "$M_OUT"
+            fi
         fi
+        
+        local POINTS
+        POINTS=$(tail -n +2 "$M_OUT" | wc -l)
+        echo "  Generated $POINTS data points"
+        echo "  ✓ Saved to: $(basename "$M_OUT")"
+        echo "  Columns: Gene, CHR, POS, Pvalue, NegLog10P, Group, Max_MAF"
+        echo ""
+    }
+
+    if [ -n "${STEP9_ACTIVE_PCOL:-}" ]; then
+        __mand_emit_one "$STEP9_ACTIVE_PCOL" "${OUTPUT_DIR}/manhattan_plot_data${STEP9_MANHATTAN_OUT_SUFFIX:-}.txt"
+        return 0
     fi
-    
-    POINTS=$(tail -n +2 "$OUTPUT_DIR/manhattan_plot_data.txt" | wc -l)
-    echo "  Generated $POINTS data points"
-    echo "  ✓ Saved to: manhattan_plot_data.txt"
-    echo "  Columns: Gene, CHR, POS, Pvalue, NegLog10P, Group, Max_MAF"
-    echo ""
+
+    step9_normalize_manhattan_p_mode_from_env
+    case "${STEP9_MANHATTAN_P_MODE:-pvalue}" in
+        all)
+            while IFS=$'\t' read -r ap suf _t; do
+                [ -z "$ap" ] && continue
+                __mand_emit_one "$ap" "${OUTPUT_DIR}/manhattan_plot_data${suf}.txt"
+            done < <(step9_manhattan_all_targets_lines)
+            ;;
+        *)
+            if step9_resolve_single_manhattan_target; then
+                __mand_emit_one "$STEP9_ACTIVE_PCOL_RESOLVED" "${OUTPUT_DIR}/manhattan_plot_data${STEP9_FILE_SUFFIX_RESOLVED}.txt"
+            else
+                return 1
+            fi
+            ;;
+    esac
 }
 
 
@@ -2199,6 +2390,34 @@ op_makeplots() {
         echo "  Manhattan extra labels (union with top-by-P): ${STEP9_MANHATTAN_LABEL_EXTRA}"
     fi
 
+    : "${STEP9_MANHATTAN_P_MODE:=pvalue}"
+    if [ "$INTERACTIVE" = true ] && { [ -n "${PCOL_BURDEN:-}" ] || [ -n "${PCOL_SKAT:-}" ]; }; then
+        echo "  QQ / Manhattan: which P-value column?"
+        echo "    [1] Pvalue (combined) — default"
+        [ -n "${PCOL_BURDEN:-}" ] && echo "    [2] Pvalue_Burden"
+        [ -n "${PCOL_SKAT:-}" ] && echo "    [3] Pvalue_SKAT"
+        echo "    [4] All three (separate qq/manhattan data files and PNGs)"
+        read -r -p "  Choice [1-4] (Enter=1): " PM_CH
+        PMC=$(printf '%s' "${PM_CH:-1}" | tr -d ' ')
+        case "$PMC" in
+            2)
+                [ -z "${PCOL_BURDEN:-}" ] && PMC=1
+                ;;
+            3)
+                [ -z "${PCOL_SKAT:-}" ] && PMC=1
+                ;;
+        esac
+        case "$PMC" in
+            2) STEP9_MANHATTAN_P_MODE=burden ;;
+            3) STEP9_MANHATTAN_P_MODE=skat ;;
+            4) STEP9_MANHATTAN_P_MODE=all ;;
+            *) STEP9_MANHATTAN_P_MODE=pvalue ;;
+        esac
+        echo "  QQ/Manhattan P mode: ${STEP9_MANHATTAN_P_MODE}"
+    fi
+    step9_normalize_manhattan_p_mode_from_env
+    export STEP9_MANHATTAN_P_MODE
+
     if [ "$PLOT_DO_UNFILTERED" != "1" ]; then
         echo "  Note: Unfiltered plot mode was off; enabling single Manhattan/QQ (all groups, all max_MAF)."
         PLOT_DO_UNFILTERED=1
@@ -2209,8 +2428,16 @@ op_makeplots() {
 args <- commandArgs(trailingOnly = TRUE)
 legacy <- length(args) < 4
 n_genes_merged <- NA_integer_
+write_gs <- TRUE
+plot_tag <- ""
 if (!legacy && length(args) >= 5) {
   n_genes_merged <- suppressWarnings(as.integer(args[5]))
+}
+if (!legacy && length(args) >= 6) {
+  write_gs <- (args[6] == "yes")
+}
+if (!legacy && length(args) >= 7) {
+  plot_tag <- args[7]
 }
 if (!legacy) {
   out_dir <- args[1]
@@ -2224,6 +2451,13 @@ if (!legacy) {
   man_fn <- "manhattan_plot_data.txt"
 }
 setwd(out_dir)
+
+qq_stem <- sub("^qq_plot_data", "", sub("\\.txt$", "", basename(qq_fn)))
+qq_png <- if (!nzchar(qq_stem)) "qq_plot.png" else paste0("qq_plot", qq_stem, ".png")
+man_stem <- sub("^manhattan_plot_data", "", sub("\\.txt$", "", basename(man_fn)))
+man_png_b <- if (!nzchar(man_stem)) "manhattan_plot.png" else paste0("manhattan_plot", man_stem, ".png")
+qq_title <- if (nzchar(plot_tag)) paste0("QQ plot (", plot_tag, ") — ", tag) else paste0("QQ plot — ", tag)
+man_title <- if (nzchar(plot_tag)) paste0("Manhattan (Bonferroni, ", plot_tag, ") — ", tag) else paste0("Manhattan (Bonferroni) — ", tag)
 
 safe_dev_off <- function() {
   while (!is.null(dev.list())) dev.off()
@@ -2569,10 +2803,8 @@ plot_man <- function(
   invisible(TRUE)
 }
 
-qq_png <- "qq_plot.png"
-man_png_b <- "manhattan_plot.png"
-plot_qq(qq_fn, qq_png, paste0("QQ plot — ", tag))
-plot_man(man_fn, man_png_b, paste0("Manhattan (Bonferroni) — ", tag), tag, n_genes_merged, TRUE)
+plot_qq(qq_fn, qq_png, qq_title)
+plot_man(man_fn, man_png_b, man_title, tag, n_genes_merged, write_gs)
 
 RSCRIPT
 
@@ -2583,21 +2815,61 @@ RSCRIPT
         local tag="$1"
         local label="$2"
         echo "  $label"
+        local mode="${STEP9_MANHATTAN_P_MODE:-pvalue}"
+
+        if [ "$mode" = "all" ]; then
+            local first=1
+            while IFS=$'\t' read -r ap suf ptag; do
+                [ -z "$ap" ] && continue
+                export STEP9_ACTIVE_PCOL="$ap"
+                export STEP9_QQ_OUT_SUFFIX="$suf"
+                export STEP9_MANHATTAN_OUT_SUFFIX="$suf"
+                op_qqdata
+                op_mandata
+                local wstat=no
+                [ "$first" -eq 1 ] && wstat=yes
+                first=0
+                if ! Rscript "$r_script" "$OUTPUT_DIR" "$tag" \
+                    "$OUTPUT_DIR/qq_plot_data${suf}.txt" "$OUTPUT_DIR/manhattan_plot_data${suf}.txt" \
+                    "${N_GENES_MERGED:-0}" "$wstat" "$ptag"; then
+                    echo "    WARNING: R plotting failed for P=${ptag}"
+                    unset STEP9_ACTIVE_PCOL STEP9_QQ_OUT_SUFFIX STEP9_MANHATTAN_OUT_SUFFIX
+                    return 1
+                fi
+                local qp mp
+                qp=$(step9_expected_png_from_qq_data_path "qq_plot_data${suf}.txt")
+                mp=$(step9_expected_png_from_manhattan_data_path "manhattan_plot_data${suf}.txt")
+                [ -f "$OUTPUT_DIR/$qp" ] && echo "    ✓ $qp"
+                [ -f "$OUTPUT_DIR/$mp" ] && echo "    ✓ $mp"
+                unset STEP9_ACTIVE_PCOL STEP9_QQ_OUT_SUFFIX STEP9_MANHATTAN_OUT_SUFFIX
+            done < <(step9_manhattan_all_targets_lines)
+            return 0
+        fi
+
+        unset STEP9_ACTIVE_PCOL STEP9_QQ_OUT_SUFFIX STEP9_MANHATTAN_OUT_SUFFIX
         op_qqdata
         op_mandata
-        if ! Rscript "$r_script" "$OUTPUT_DIR" "$tag" "qq_plot_data.txt" "manhattan_plot_data.txt" "${N_GENES_MERGED:-0}"; then
+        step9_resolve_single_manhattan_target || return 1
+        local suf="${STEP9_FILE_SUFFIX_RESOLVED:-}"
+        local ptag="${STEP9_PLOT_TITLE_TAG_RESOLVED:-}"
+        if ! Rscript "$r_script" "$OUTPUT_DIR" "$tag" \
+            "$OUTPUT_DIR/qq_plot_data${suf}.txt" "$OUTPUT_DIR/manhattan_plot_data${suf}.txt" \
+            "${N_GENES_MERGED:-0}" "yes" "$ptag"; then
             echo "    WARNING: R plotting failed for tag=$tag"
             return 1
         fi
-        [ -f "$OUTPUT_DIR/qq_plot.png" ] && echo "    ✓ qq_plot.png"
-        [ -f "$OUTPUT_DIR/manhattan_plot.png" ] && echo "    ✓ manhattan_plot.png"
+        local qp mp
+        qp=$(step9_expected_png_from_qq_data_path "qq_plot_data${suf}.txt")
+        mp=$(step9_expected_png_from_manhattan_data_path "manhattan_plot_data${suf}.txt")
+        [ -f "$OUTPUT_DIR/$qp" ] && echo "    ✓ $qp"
+        [ -f "$OUTPUT_DIR/$mp" ] && echo "    ✓ $mp"
         return 0
     }
 
     if [ "$PLOT_DO_UNFILTERED" = "1" ]; then
         FILTER_GROUP=""
         FILTER_MAF=""
-        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → qq_plot.png + manhattan_plot.png"
+        regen_and_plot "allGroups_allMaf" "[all groups, all max_MAF] → QQ + Manhattan per STEP9_MANHATTAN_P_MODE"
     fi
 
     FILTER_GROUP="$_fg_save"
@@ -2795,9 +3067,9 @@ if [ "$INTERACTIVE" = true ]; then
     fi
     
     echo ""
-    echo "--- PNG plots (makeplots / plotdata): one QQ + one Manhattan (all groups, all max_MAF) ---"
-    echo "  qq_plot.png"
-    echo "  manhattan_plot.png (Bonferroni, −log10 P)"
+    echo "--- PNG plots (makeplots / plotdata): QQ + Manhattan (all groups, all max_MAF) ---"
+    echo "  If Pvalue_Burden / Pvalue_SKAT exist, makeplots will ask which P to use, or to generate all three."
+    echo "  Default files: qq_plot.png, manhattan_plot.png (Bonferroni, −log10 P)"
     read -r -p "Generate those plots when using plotdata/makeplots? [y/n] (Enter=yes): " PU
     if step9_prompt_is_yes "$PU" "y"; then
         PLOT_DO_UNFILTERED=1
@@ -2865,7 +3137,7 @@ case "${STEP9_CAUCHY_MODE:-off}" in
         printf '%s\n' "Cauchy mode=full: omitted from plots, all derived tables, and full summary totals."
         ;;
 esac
-printf '%s\n' "PNG plots (makeplots): single QQ + Manhattan, all groups x all max_MAF, unfiltered=${PLOT_DO_UNFILTERED}"
+printf '%s\n' "PNG plots (makeplots): QQ + Manhattan, all groups x all max_MAF, unfiltered=${PLOT_DO_UNFILTERED}, P mode=${STEP9_MANHATTAN_P_MODE:-pvalue} (env STEP9_MANHATTAN_P_MODE=pvalue|burden|skat|all)"
 echo ""
 
 for op in "${OPS[@]}"; do
@@ -2903,8 +3175,8 @@ echo ""
 echo "Primary outputs:"
 echo "  - analysis_summary.txt"
 echo "  - top50_genes.txt"
-echo "  - qq_plot_data.txt and manhattan_plot_data.txt"
-echo "  - qq_plot.png; manhattan_plot.png = Bonferroni (-log10 P) with gene Bonferroni reference lines (when Rscript is available)"
+echo "  - qq_plot_data.txt / manhattan_plot_data.txt (optional *_burden.txt / *_skat.txt when STEP9_MANHATTAN_P_MODE=all or Burden/SKAT columns present)"
+echo "  - qq_plot.png; manhattan_plot.png (optional qq_plot_burden.png / manhattan_plot_burden.png, *_skat.png; Bonferroni −log10 P when Rscript is available)"
 echo ""
 
 if [ -f "$OUTPUT_DIR/annotation_groups.txt" ]; then

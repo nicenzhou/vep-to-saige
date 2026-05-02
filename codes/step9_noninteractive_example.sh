@@ -50,6 +50,15 @@ ENSEMBL_RELEASE="${ENSEMBL_RELEASE:-}"      # optional e.g. 115, or full REST UR
 # export STEP9_MANHATTAN_LABEL_TOP_N=10
 # export STEP9_MANHATTAN_LABEL_EXTRA=PCSK9,LDLR,APOB
 # export STEP9_MANHATTAN_LABEL_EXTRA_FILE=/path/to/gene_list.tsv
+# QQ/Manhattan / qqdata/mandata P-value column (when merged results include Pvalue_Burden / Pvalue_SKAT):
+#   STEP9_MANHATTAN_P_MODE=pvalue | burden | skat | all
+#     pvalue — combined Pvalue only (default if unset)
+#     burden — Pvalue_Burden column only
+#     skat   — Pvalue_SKAT column only
+#     all    — emit qq_plot_data*.txt / manhattan_plot_data*.txt and PNGs for each present column
+# Interactive runs prompt when Burden/SKAT exist; batch runs use this env var.
+# STEP9_MANHATTAN_P_MODE="${STEP9_MANHATTAN_P_MODE:-all}"
+
 # Cauchy rows (all_results.txt is never modified; .all_results_no_cauchy.txt is built when needed):
 #   STEP9_CAUCHY_MODE=off|plots|pipeline|full
 #     off       — keep Cauchy everywhere
@@ -86,10 +95,10 @@ ENSEMBL_RELEASE="${ENSEMBL_RELEASE:-}"      # optional e.g. 115, or full REST UR
 #   fullsum          Full text summary report
 #
 # Plot data / PNG:
-#   qqdata           qq_plot_data.txt
-#   mandata          manhattan_plot_data.txt
+#   qqdata           qq_plot_data.txt (optional qq_plot_data_burden.txt / *_skat.txt if STEP9_MANHATTAN_P_MODE=all)
+#   mandata          manhattan_plot_data.txt (optional *_burden / *_skat per STEP9_MANHATTAN_P_MODE)
 #   plotdata         qq + mandata + makeplots (see step9)
-#   makeplots        PNGs + group_statistics.txt (needs Rscript)
+#   makeplots        PNGs + group_statistics.txt (needs Rscript; STEP9_MANHATTAN_P_MODE for multi-P)
 #
 # Bundled:
 #   standard         mergeall, listgroups, findsig, top50, groupsum, makeplots, fullsum
@@ -152,11 +161,15 @@ echo "OPERATIONS:    ${OPERATIONS}"
 echo "POSITION_MODE: ${POSITION_MODE}"
 echo "COORD_SOURCE:  ${COORD_SOURCE}"
 echo "STEP9_CAUCHY_MODE: ${STEP9_CAUCHY_MODE:-off}  (export STEP9_CAUCHY_MODE or legacy STEP9_EXCLUDE_CAUCHY=1)"
+echo "STEP9_MANHATTAN_P_MODE: ${STEP9_MANHATTAN_P_MODE:-<unset → pvalue in step9>}"
 echo ""
 
 if [ "${VERBOSE:-0}" = "1" ]; then
   set -x
 fi
+
+# Pass through to step9 only when set (e.g. STEP9_MANHATTAN_P_MODE=all)
+[ -n "${STEP9_MANHATTAN_P_MODE:-}" ] && export STEP9_MANHATTAN_P_MODE
 
 exec bash "${STEP9_SCRIPT}" \
   -d "${RESULTS_DIR}" \
