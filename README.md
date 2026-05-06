@@ -4,29 +4,41 @@ Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run g
 
 ## Contents
 
+**Introduction**
+
 - [Overview](#overview)
+
+**Getting started**
+
 - [Clone and setup](#clone-and-setup)
 - [Quick Start: Full Pipeline](#quick-start-full-pipeline)
 - [Quick Start: Alternative Workflows](#quick-start-alternative-workflows)
-- [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders)
+
+**Reference**
+
 - [Expected output structure](#expected-output-structure)
 - [Requirements](#requirements)
-- [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10)
+- [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) — Step **9** = one results folder; Step **10** = multiple folders (documented after Step 9)
+
+**Notes and troubleshooting**
+
 - [Important notes](#important-notes)
-- [Quality Control](#quality-control)
 - [Troubleshooting](#troubleshooting)
+
+**Citation and support**
+
 - [Citation](#citation)
 - [Support](#support)
 
 ## Overview
 
-This pipeline processes VEP-annotated VCF files to create gene-based variant groups and performs rare variant association testing using SAIGE-GENE. It supports:
-
-- **VEP annotation parsing** - Extract functional annotations from VEP-annotated VCFs
-- **Gene group generation** - Create variant sets grouped by genes and functional categories
-- **Genotype extraction** - Extract gene-specific genotypes in multiple formats (BGEN, PLINK, PGEN, VCF)
-- **SAIGE-GENE testing** - Run genome-wide gene-based burden and SKAT-O tests
-- **Result analysis** - Identify significant gene associations
+| Stage | What it does |
+|-------|----------------|
+| **VEP → groups** | Parse VEP VCFs → SAIGE **`GENE var …` / `GENE anno …`** groups |
+| **Coordinates & regions** | Ensembl / matched coords → PLINK-style regions |
+| **Genotypes** | Extract per-gene regions (**BGEN**, **PLINK**, **PGEN**, **VCF**) |
+| **SAIGE-GENE** | Burden + SKAT-O tests genome-wide |
+| **Summarize & plots** | **Step 9** = one output dir · **Step 10** = batch many dirs → **`SummaryResults/`** |
 
 ---
 
@@ -87,10 +99,19 @@ EOF
 ./codes/step8_pre2_validate_saige_config.sh saige_config.txt
 ./codes/step8_run_saige_gene_tests.sh saige_config.txt
 
+# Step **9** = one directory of **`chr*_combined_results.txt`**. Step **10** = batch across folders.
 ./codes/step9_analyze_results.sh --results-dir saige_results standard
+
+# -----------------------------------------------------------------------------
+# Step 10 — only if you have MULTIPLE sibling results folders (not one saige_results/).
+# One folder of results → Step 9 above is enough; skip Step 10.
+# -----------------------------------------------------------------------------
+# chmod +x codes/step10_run_step9_all_folders.sh
+# ./codes/step10_run_step9_all_folders.sh                     # standard per folder → SummaryResults/
+# ./codes/step10_run_step9_all_folders.sh -i AFR EUR AMR       # interactive; Y = same params for all folders
 ```
 
-If you later maintain **multiple SAIGE output directories** as sibling folders (e.g. one per ancestry), use **`step10_run_step9_all_folders.sh`** (pipeline Step 10) — see [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders).
+*Further detail: [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
 
 ---
 
@@ -210,55 +231,17 @@ EOF
 ./codes/step8_pre2_validate_saige_config.sh saige_config.txt
 ./codes/step8_run_saige_gene_tests.sh saige_config.txt
 ./codes/step9_analyze_results.sh --results-dir saige_results standard
+
+#--------------------------------------------------------------------------
+# Optional Step 10 — only if you have MULTIPLE sibling SAIGE results folders
+# (e.g. AFR/, EUR/). One folder → Step 9 above is enough; skip Step 10.
+#--------------------------------------------------------------------------
+# chmod +x codes/step10_run_step9_all_folders.sh
+# ./codes/step10_run_step9_all_folders.sh
+# ./codes/step10_run_step9_all_folders.sh -i AFR EUR AMR
 ```
 
----
-
-## Step 10 (batch Step 9: multiple cohort folders)
-
-**Choose this vs single-folder Step 9**
-
-| Situation | Command |
-|-----------|---------|
-| One SAIGE output directory | `./codes/step9_analyze_results.sh --results-dir saige_results …` |
-| Several sibling directories (`AFR/`, `EUR/`, …), each with `chr*_combined_results.txt` | `./codes/step10_run_step9_all_folders.sh …` |
-
-Use **Step 10** when outputs are **separate sibling folders** (e.g. one per ancestry). Full wrapper documentation: **`./codes/step10_run_step9_all_folders.sh --help`**.
-
-**Script:** `codes/step10_run_step9_all_folders.sh` — next to `step9_analyze_results.sh`; runs step9 once per qualifying subfolder, then copies plots (`*.png`) and main tables into **`SummaryResults/`** with folder-name prefixes (`AFR_qq_plot.png`, `EUR_analysis_summary.txt`, …).
-
-```bash
-chmod +x codes/step10_run_step9_all_folders.sh
-
-# Repository root = parent of cohort folders + SummaryResults (wrapper in codes/ uses parent as cohort root).
-./codes/step10_run_step9_all_folders.sh                     # all qualifying cohort folders → step9 standard each
-./codes/step10_run_step9_all_folders.sh AFR EUR Pooled      # only these folders
-
-# Non-interactive: step9 args after `--` (omit `--results-dir`; wrapper sets STEP9_RESULTS_DIR per cohort).
-./codes/step10_run_step9_all_folders.sh -- quick
-./codes/step10_run_step9_all_folders.sh AFR EUR -- standard /path/gene_coords.tsv midpoint lof 0.01
-
-# Interactive (terminal required): shared vs per-cohort parameters.
-./codes/step10_run_step9_all_folders.sh --interactive
-./codes/step10_run_step9_all_folders.sh -i AFR EUR
-```
-
-**Layout:** Cohort folders sit under **`STEP9_COHORT_ROOT`** (default: repo root if `codes/step10_run_step9_all_folders.sh`; otherwise directory containing the script). Override **`STEP9_COHORT_ROOT`** if cohorts live elsewhere. **`STEP9_SUMMARY_DIR`** overrides copy destination (default **`<cohort_root>/SummaryResults`**).
-
-**Defaults:** No `-- …` tail ⇒ **`standard`** preset per folder, same as running step9 manually. After **`--`**, arguments are forwarded to **`step9_analyze_results.sh`** for every cohort. Env vars (`STEP9_CAUCHY_MODE`, `STEP9_PLOT_UNFILTERED`, `STEP9_MANHATTAN_P_MODE`, …) apply to each run.
-
-**Interactive (`-i`):** With 2+ cohorts, **`Use the same step9 parameters for all … ? [Y/n]`** — **Yes** = one prompt for all; **No** = prompt per cohort. One cohort ⇒ single prompt (no extra question). Do not combine **`-i`** with **`-- …`** step9 args.
-
-**Performance**
-
-- **Step 9 `fullsum`:** Counts use a **single pass** over the merged table; the **annotation_group_summary** section is **reused** from `groupsum` when inputs align (avoids duplicate heavy work).
-- **Step 10:** With **identical** step9 arguments across cohorts, **gene coordinate / Ensembl** work runs on cohort 1; cohort 2+ read **`STEP9_REUSE_COORD_LOOKUP`** from **`<cohort_root>/.step9_batch_coord_cache/<hash>/`** (override **`STEP9_COORD_CACHE_DIR`**). Sequence-only Manhattan does not use this cache. Genes missing from the cached map can show as **NA** on plots—usually acceptable when cohorts share the same gene panel.
-
-**Long runs:** Multi-cohort passes can take hours; capture logs:
-
-```bash
-nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
-```
+*Further detail: [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
 
 ---
 
@@ -290,7 +273,7 @@ nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
 # │   ├── saige_run.log
-# ├── SummaryResults/            # Optional: Step 10 (`step10_run_step9_all_folders.sh`): prefixed PNGs + tables per cohort
+# ├── SummaryResults/            # Step 10 only (multiple cohort folders): prefixed PNGs + tables per cohort
 # └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh, step10_run_step9_all_folders.sh)
 ```
 
@@ -298,19 +281,36 @@ nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
 
 ## Requirements
 
-- ```bcftools``` — Step 1
-- ```awk``` — pipeline (GNU awk recommended)
-- ```wget``` — Step 4 download
-- ```plink2a``` — Step 6 extraction
-- Bash 4.0+
-- Optional: ```python3``` / ```certifi``` (Step 9 Ensembl), ```Rscript``` + ```ggplot2``` (Step 9 plots; ```ggrepel``` optional, improves Manhattan text labels)
+| Tool | Used in |
+|------|---------|
+| **`bcftools`** | Step 1 |
+| **`awk`** (GNU awk recommended) | Many steps |
+| **`wget`** | Step 4 |
+| **`plink2a`** | Steps 6–7 |
+| **Bash 4.0+** | All scripts |
+
+| Optional | Used for |
+|----------|----------|
+| **`python3`**, **`certifi`** | Step 9 Ensembl lookups |
+| **`Rscript`**, **`ggplot2`**, **`ggrepel`** | Step 9 QQ / Manhattan PNGs |
 
 ---
 
-
 ## Pipeline scripts (steps 1-10)
 
-Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, or **`export PATH="$PWD/codes:$PATH"`**.
+**How to run scripts**
+
+| Your layout | Command pattern |
+|-------------|-----------------|
+| Scripts under **`codes/`** | `./codes/stepN_*.sh …` |
+| Scripts next to cohort folders (some clones) | `./step9_*.sh` / `./step10_*.sh` from repo root |
+
+**Which post-SAIGE step?**
+
+| Situation | Section |
+|-----------|---------|
+| One SAIGE output tree | [Step 9](#step-9-post-analysis) |
+| Multiple sibling result folders | [Step 10](#step-10-batch-step-9-multiple-cohort-folders) |
 
 | Step | Script | Role |
 |------|--------|------|
@@ -322,10 +322,20 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 6 | `step6_extract_genotypes_plink2a.sh` | Extract cohort genotypes per gene region |
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + run test jobs |
-| 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results; QQ/Manhattan for **`Pvalue`** / **`Pvalue_Burden`** / **`Pvalue_SKAT`** (**`STEP9_MANHATTAN_P_MODE`**) |
-| 10 | `step10_run_step9_all_folders.sh` | Optional: **Step 10** — run Step 9 per sibling **`chr*_combined_results.txt`** folder; **`--help`**; prefixed PNGs/tables → **`SummaryResults/`** (see [Step 10 section](#step-10-batch-step-9-multiple-cohort-folders)) |
+| 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | **Single results folder** — merge & summarize SAIGE-GENE outputs; QQ/Manhattan (**`STEP9_MANHATTAN_P_MODE`**) |
+| 10 | `step10_run_step9_all_folders.sh` | **Multiple results folders** — run Step 9 once per folder; **`--help`**; prefixed copies → **`SummaryResults/`** ([Step 10](#step-10-batch-step-9-multiple-cohort-folders)) |
 
-**Performance (recent versions):** Step **4** streams `all_genes_coords.txt` once per build (not one full scan per chromosome). Step **5** uses **one `awk` per chromosome** for filter + BED + gene list (no huge temp match files). Steps **1**, **3**, and **6** use lighter counting/parsing (e.g. **1**: awk + one numeric sort per table; **3**: var lines only `NR%2==1`; **6**: no GNU-only `grep -P` so macOS stays portable). Step **9** **`fullsum`**: one pass over the merged table for significance counts; **annotation_group_summary** block reused from **`groupsum`** when the summary input matches. **`step10_run_step9_all_folders.sh`**: caches coordinate / Ensembl lookups under **`.step9_batch_coord_cache/`** for cohort 2+ when step9 arguments match.
+**Performance (recent versions)**
+
+| Step | Note |
+|------|------|
+| **4** | Streams **`all_genes_coords.txt`** once per build |
+| **5** | One **`awk`** per chr for filter + BED + gene list |
+| **1**, **3**, **6** | Lighter parsing (portable **awk**, no GNU-only **`grep -P`**) |
+| **9** `fullsum` | Single pass counts; may reuse **`annotation_group_summary`** from **`groupsum`** |
+| **10** | Reuses coord cache **`.step9_batch_coord_cache/<hash>/`** for cohort 2+ when Step 9 args match |
+
+**Reading the step tables:** Positionals are **in order** (`<required>` `[optional]`). **Expected input** = file or value type. **Options** = allowed keywords. **Defaults** apply when you skip optional args.
 
 ### Step 1 — `step1_vep_ann_clean.sh`
 
@@ -333,12 +343,14 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 ./codes/step1_vep_ann_clean.sh <input.vcf.gz> <output.txt> [threads] [lof_mode]
 ```
 
-| | Default | Notes |
-|---|---------|-------|
-| `threads` | `1` | Passed to `bcftools view --threads` |
-| `lof_mode` | `vep_lof` | `loftee_only` (LOFTEE HC only), `vep_lof` (VEP LoF consequences), `any` (HC or VEP LoF) |
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<input.vcf.gz>` | Path to input VCF (**bgzip** `.vcf.gz`) with VEP annotations in `INFO` | Must be readable by **`bcftools`** |
+| `<output.txt>` | Path for the annotation table (created/overwritten) | Tab-separated text |
+| `[threads]` | Integer thread count for `bcftools view --threads` | Default **`1`** |
+| `[lof_mode]` | Which LoF-like variants to keep | **`loftee_only`** — LOFTEE high-confidence only; **`vep_lof`** (default) — VEP LoF consequences; **`any`** — HC or VEP LoF |
 
-Requires **`bcftools`**. Drops `LoF=LC`, deduplicates identical annotation rows. **Output:** tab-separated header + `Variant`, `Gene`, `Consequence`, `LoF`, `LoF_flags`, `Group`, `Total_Anno`, `NON_CAN_SPLICE_Count`.
+Requires **`bcftools`**. Drops `LoF=LC`, deduplicates identical annotation rows. **Output columns:** `Variant`, `Gene`, `Consequence`, `LoF`, `LoF_flags`, `Group`, `Total_Anno`, `NON_CAN_SPLICE_Count`.
 
 ### Step 2 — `step2_create_gene_groups.sh`
 
@@ -346,10 +358,12 @@ Requires **`bcftools`**. Drops `LoF=LC`, deduplicates identical annotation rows.
 ./codes/step2_create_gene_groups.sh <anno.txt> <groups.txt> [filter] [priority]
 ```
 
-| | Default | Notes |
-|---|---------|-------|
-| `filter` | `all` | `lof`, `missense`, `synonymous`, `lof+missense` |
-| `priority` | `lof,missense,synonymous` | Resolves duplicate variant rows; use **`keepall`** to keep every annotation |
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<anno.txt>` | Step 1–style annotation TSV | Same columns as Step 1 output |
+| `<groups.txt>` | Output path for SAIGE **`GENE var …` / `GENE anno …`** pairs | Variant line then annotation line per variant |
+| `[filter]` | Which consequence classes to include | **`all`** (default), **`lof`**, **`missense`**, **`synonymous`**, **`lof+missense`** |
+| `[priority]` | Comma list used when one variant maps to multiple annotations | Default **`lof,missense,synonymous`**; use **`keepall`** to retain every annotation row |
 
 Conflict rows (same priority) → **`<groups.txt>.conflict`**. Filters missing symbols, bad splice counts, and “all NON_CAN_SPLICE” LoF rows per script rules.
 
@@ -359,7 +373,13 @@ Conflict rows (same priority) → **`<groups.txt>.conflict`**. Filters missing s
 ./codes/step3_merge_and_validate_groups.sh <merged_out.txt> [input_dir] [pattern]
 ```
 
-Merges **`chr*_groups.txt`** in genomic order. Auto-detects **`chr1`** vs **`chr01`** naming, or supply a glob **`pattern`** (quoted), e.g. `"custom_chr*_groups.txt"`. Concatenation only (no re-validation).
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<merged_out.txt>` | Output path for the merged groups file (e.g. `all_genes_groups.txt`) | Single combined file in genomic order |
+| `[input_dir]` | Directory that holds per-chromosome **`chr*_groups.txt`** files | Default **`.`** (current directory) |
+| `[pattern]` | Optional **quoted** glob to select input files | Default auto-detects **`chr1`** vs **`chr01`** naming; e.g. `"custom_chr*_groups.txt"` |
+
+Merges inputs in genomic order. Concatenation only (no re-validation).
 
 ### Step 4 — `step4_download_gene_coords.sh`
 
@@ -367,7 +387,13 @@ Merges **`chr*_groups.txt`** in genomic order. Auto-detects **`chr1`** vs **`chr
 ./codes/step4_download_gene_coords.sh [ensembl_release] [GRCh38|GRCh37] [out_dir]
 ```
 
-Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**. Writes `all_genes_coords.txt`, then **splits by chromosome in a single read** of that file, removes downloaded GTF, then **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF file is **`Homo_sapiens.GRCh37.<release>.gtf.gz`** matching **`ensembl_release`**.
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `[ensembl_release]` | Ensembl **release number** (matches GTF on Ensembl FTP) | Default **`115`** |
+| Genome build | Reference assembly for the GTF | **`GRCh38`** or **`GRCh37`** (positional arg 2); default **`GRCh38`** |
+| `[out_dir]` | Directory name to create for `chr*_genes.txt` | Default **`gene_coords`** |
+
+Needs network + **`wget`**. Writes `all_genes_coords.txt`, splits by chromosome, removes downloaded GTF, archives **`gene_coords_ensembl<release>.tar.gz`**. **GRCh37:** GTF **`Homo_sapiens.GRCh37.<release>.gtf.gz`** must match **`ensembl_release`**.
 
 ### Step 5 — `step5_match_genes_to_groups.sh`
 
@@ -375,11 +401,14 @@ Defaults: **`115`**, **`GRCh38`**, **`gene_coords`**. Needs network + **`wget`**
 ./codes/step5_match_genes_to_groups.sh <gene_coords_dir> <merged_groups.txt> <out_dir> [buffer_kb] [force_regen] [merge_regen]
 ```
 
-| | Default | Notes |
-|---|---------|-------|
-| `buffer_kb` | `10` | Added around gene body |
-| `force_regen` | `no` | If `yes`, infer intervals from variant positions when symbol missing from coords |
-| `merge_regen` | `yes` | Merge recovered genes into main **`chr*_regions.txt`** vs separate **`*_recovered.txt`** |
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<gene_coords_dir>` | Directory from Step **4** (`gene_coords/`) containing **`chr*_genes.txt`** | Path to folder, not a single file |
+| `<merged_groups.txt>` | Step **3** merged groups file (e.g. `all_genes_groups.txt`) | One variant/anno block per gene group |
+| `<out_dir>` | Directory to write **`plink_regions/`**-style outputs | Created if needed |
+| `[buffer_kb]` | Extra kb padded around each gene interval | Integer ≥ **`0`**; default **`10`** |
+| `[force_regen]` | Recover coords from variant positions when symbol missing | **`yes`** / **`no`**; default **`no`** |
+| `[merge_regen]` | Merge recovered intervals into main chr files | **`yes`** / **`no`**; default **`yes`** |
 
 Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_genes.txt`**, **`matching_summary.txt`**, log under **`out_dir`**. Matching and BED construction share **one pass** over each coordinate file (no per-chr temp match file).
 
@@ -390,7 +419,18 @@ Output: BED-like **`chr*_regions.txt`**, **`matched_genes.txt`**, **`missing_gen
   [threads] [output_fmt] [input_fmt] [chr_prefix] [genes_per_chunk]
 ```
 
-Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt`:** `bfile`, `pgen`, `vcf`, `bgen`; **`auto`** detects inputs. **`chr_prefix`:** e.g. `chr`, `imputed_chr`, or `""` for `1.bed`… **`genes_per_chunk`:** `0` = whole chromosome; `20` → **`chr1_genes_chunk1`** … **`extraction_summary.txt`** + **`extraction.log`**.
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<genotype_dir>` | Directory with cohort genotype files (**`.bed/.bim/.fam`**, **`.pgen`**, **`.bgen`**, **`.vcf.gz`**, …) | Must match **`input_fmt`** (or use **`auto`**) |
+| `<regions_dir>` | Step **5** output (folder with **`chr*_regions.txt`**) | Same paths you used in Step 5 |
+| `<out_dir>` | Where **`plink2a`** writes per-chr extractions | Created if needed |
+| `[threads]` | Parallel threads for extraction | Positive integer; script default if omitted (see script header) |
+| `[output_fmt]` | Target format for extracted genotypes | **`bfile`**, **`pgen`**, **`vcf`**, **`bgen`** |
+| `[input_fmt]` | Format of inputs under **`genotype_dir`** | **`bfile`**, **`pgen`**, **`vcf`**, **`bgen`**, or **`auto`** to detect |
+| `[chr_prefix]` | Filename prefix for chromosomes | e.g. **`chr`**, **`imputed_chr`**, or **`""`** if files are **`1.bed`** … **`22.bed`** |
+| `[genes_per_chunk]` | Genes per chunk file | **`0`** = one output set per chromosome; **`20`**–**`50`** typical if RAM-limited → **`chr1_genes_chunk1`** … |
+
+Requires **`plink2a`**. Writes **`extraction_summary.txt`** + **`extraction.log`** under **`out_dir`**.
 
 ### Step 7 — `step7_verify_extraction.sh`
 
@@ -398,27 +438,51 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 ./codes/step7_verify_extraction.sh <extract_dir> <regions_dir> [report.txt] [format]
 ```
 
-**`format`** must match step 6 (`bfile`, `pgen`, `vcf`, `bgen`). Report: counts per chr/chunk, sizes, optional MAF histogram if **`plink2a`** runs `--freq`.
+| Argument | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `<extract_dir>` | Step **6** **`out_dir`** (extracted genotypes) | Must match **`format`** |
+| `<regions_dir>` | Same **`regions_dir`** passed to Step **6** | For cross-check vs intended regions |
+| `[report.txt]` | Path for text QC report | Optional; default chosen by script if omitted |
+| `[format]` | Extracted genotype format | **`bfile`**, **`pgen`**, **`vcf`**, **`bgen`** — **must match Step 6** |
+
+Report: counts per chr/chunk, sizes, optional MAF histogram if **`plink2a`** runs `--freq`.
 
 ### Step 8 — SAIGE-GENE (configuration + run)
 
-| Script | Use |
-|--------|-----|
-| `codes/step8_pre1_build_saige_config.sh` | Interactive **`key=value`** file |
-| `codes/step8_pre2_validate_saige_config.sh <file>` | Path and option checks (`source`s the file) |
-| `codes/step8_run_saige_gene_tests.sh <file>` | SPAtests / Step 2 jobs, chunk merge optional |
+| Script | Arguments / inputs | Role |
+|--------|-------------------|------|
+| `step8_pre1_build_saige_config.sh` | Interactive prompts → writes **`key=value`** config path you choose | Build SAIGE config template |
+| `step8_pre2_validate_saige_config.sh` | `<config.txt>` — path to **`key=value`** file | Validates paths/options (**`source`s** the file) |
+| `step8_run_saige_gene_tests.sh` | `<config.txt>` same validated file | Runs SPAtests / SAIGE-GENE jobs; chunk merge per **`MERGE_CHUNKS`** |
 
-**Must set:** `GENOTYPE_DIR`, `OUTPUT_DIR`, `GMMAT_MODEL`, `VARIANCE_RATIO`, and either **`GROUP_FILE`** with **`GROUP_FILE_BY_CHR=no`** or **`GROUP_FILE_BY_CHR=yes`** + **`GROUP_DIR`**. Set **`INPUT_FORMAT`**, **`THREADS`**, quoted **`CHROMOSOMES`**, **`CHUNKED_INPUT`** / **`MERGE_CHUNKS`** when using chunks. In-file SAIGE options: use **`r_corr`** (maps to `--r.corr`); quote **`maxMAF_in_groupTest`**; **`annotation_in_groupTest`** uses **colons** between burden masks.
+**Config file (`key=value`) — required keys**
+
+| Key | Expected input | Notes |
+|-----|----------------|-------|
+| **`GENOTYPE_DIR`** | Path to Step **6** genotype extract folder | Same as Step 6 `<out_dir>` |
+| **`OUTPUT_DIR`** | SAIGE outputs (will contain **`chr*_combined_results.txt`** when merged) | Writable directory |
+| **`GMMAT_MODEL`** | Path to **`.rda`** null model from SAIGE step 1 | From your SAIGE null fit |
+| **`VARIANCE_RATIO`** | Path to variance ratio text from SAIGE step 1 | From your SAIGE null fit |
+| **`GROUP_FILE`** + **`GROUP_FILE_BY_CHR=no`** | Single merged groups file | **Or** **`GROUP_FILE_BY_CHR=yes`** + **`GROUP_DIR`** pointing at per-chr **`chr*_groups.txt`** |
+| **`INPUT_FORMAT`** | **`bfile`**, **`pgen`**, **`bgen`**, **`vcf`** | Must match Step **6** extraction |
+| **`THREADS`** | Integer | CPU threads for SAIGE jobs |
+| **`CHROMOSOMES`** | Comma list, quoted if needed | e.g. **`1,2,…,22`** |
+| **`MERGE_CHUNKS`** / **`CHUNKED_INPUT`** | **`yes`**/**`no`** per your chunking | When **`MERGE_CHUNKS=yes`**, merged **`chr*_combined_results.txt`** |
+
+**Other common keys:** **`r_corr`** (maps to SAIGE **`--r.corr`**); **`maxMAF_in_groupTest`** — comma-separated, **quoted** in file; **`annotation_in_groupTest`** — **colons** between burden masks within the string.
 
 ---
 
 ### Step 9: Post-Analysis
 
-**Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, `chr*_chunk*_results.txt`, or `chr*_all_results.txt`). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
+| Question | Answer |
+|----------|--------|
+| When to use Step **9**? | All SAIGE chr outputs sit under **one** directory. |
+| Results dir default | **`.`** — set **`--results-dir`** / **`STEP9_RESULTS_DIR`** if needed. |
+| Input files SAIGE produces | **`chr*_combined_results.txt`**, **`chr*_chunk*_results.txt`**, or **`chr*_all_results.txt`**. |
+| Several cohort folders instead? | Use [Step 10](#step-10-batch-step-9-multiple-cohort-folders) — do **not** point Step 9 at multiple cohort trees at once. |
 
-**Step 10 wrapper (optional):** `codes/step10_run_step9_all_folders.sh` — runs Step 9 across multiple sibling results directories and aggregates prefixed plots/tables under **`SummaryResults/`**. See [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders).
-
-**Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `STEP9_SCRIPT`, `OPERATIONS`, `PRESET`, **`STEP9_MANHATTAN_P_MODE`**, etc.); runs `step9_analyze_results.sh` (same repo folder by default). Example:
+**Optional helper:** `codes/step9_noninteractive_example.sh` — set **`RESULTS_DIR`**, **`PRESET`**, **`STEP9_MANHATTAN_P_MODE`**, etc., then run:
 
 ```bash
 chmod +x codes/step9_noninteractive_example.sh
@@ -427,9 +491,14 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 # Equivalent: STEP9_RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example.sh
 ```
 
-**Optional dependencies:** `python3` (Ensembl REST lookups), `Rscript` (PNG QQ/Manhattan; **`ggplot2`** / **`ggrepel`** optional), **`certifi`** on macOS if Ensembl TLS fails.
+**Dependencies for optional features**
 
-**Non-interactive** (flags first, then positionals):
+| Feature | Needs |
+|---------|--------|
+| Ensembl coords | **`python3`**, **`certifi`** (macOS TLS) |
+| PNG QQ / Manhattan | **`Rscript`**, **`ggplot2`** (**`ggrepel`** optional) |
+
+**CLI** — flags first, then positionals:
 
 ```bash
 ./codes/step9_analyze_results.sh [--results-dir|-d|--dir PATH] OPERATIONS \
@@ -437,33 +506,63 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
   [coord_source] [ensembl_build] [ensembl_release]
 ```
 
-| Flag / positional | Meaning |
-|-------------------|---------|
-| `--results-dir` etc. | Results folder (same as **`STEP9_RESULTS_DIR`**) |
-| `OPERATIONS` | One preset (**`standard`**, **`full`**, **`quick`**) or **`+`‑separated** operations (e.g. `mergeall+findsig+top50`) |
-| `gene_coords_file` | Optional coordinate TSV for Manhattan (chrom, start, end, gene, …) |
-| `position_mode` | Gene position on chromosome: **`start`**, **`end`**, **`midpoint`** |
-| `filter_group` | Optional; restrict derived tables/plots to annotation group(s) (e.g. `lof` or `lof;missense`) |
-| `filter_maf` | Optional; e.g. **`0.01`** keeps tests with max_MAF ≤ 0.01 |
-| `coord_source` | **`sequence`** (default) or **`ensembl`** when no gene coordinate file is given |
-| `ensembl_build` | **`37`** or **`38`** when **`coord_source`** is **`ensembl`** |
-| `ensembl_release` | Optional Ensembl release (e.g. **`115`**) or custom REST base URL |
+| Flag / positional | Expected input | Options / meaning |
+|-------------------|----------------|-------------------|
+| `--results-dir`, `-d`, `--dir` | Path to **one** SAIGE output directory | Same as env **`STEP9_RESULTS_DIR`**; holds **`chr*_combined_results.txt`** (and related files) |
+| `OPERATIONS` | First positional after optional flags | Preset **`standard`**, **`full`**, **`quick`** **or** **`+`**‑joined ops (e.g. `mergeall+findsig+top50`) |
+| `gene_coords_file` | Optional tab file with gene coordinates for Manhattan | Typically chr, start, end, gene symbol columns; omit if using sequence-only or Ensembl |
+| `position_mode` | Where on the gene interval to plot | **`start`**, **`end`**, **`midpoint`** |
+| `filter_group` | Annotation group filter | e.g. **`lof`** or **`lof;missense`**; omit for no filter |
+| `filter_maf` | Numeric MAF ceiling | e.g. **`0.01`** → keep tests with **max_MAF ≤ 0.01** |
+| `coord_source` | How to place genes without a coord file | **`sequence`** (from SAIGE table) or **`ensembl`** (REST lookup) |
+| `ensembl_build` | Genome build for Ensembl | **`37`** or **`38`** when **`coord_source=ensembl`** |
+| `ensembl_release` | Ensembl release or REST base URL | e.g. **`115`**; optional |
 
-**Environment variables (Step 9)**
+**Common environment variables (override defaults without editing the script)**
 
-- **Plots & Manhattan:** **`STEP9_PLOT_UNFILTERED`** (default **`1`**: QQ + Manhattan for all groups × all max_MAF). **`STEP9_MANHATTAN_LABEL_TOP_N`**, **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma-separated symbols labeled in addition to the top‑N by *P*; case-insensitive; missing symbols are skipped), **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab file merged into that list: use column **`Gene`**, **`Symbol`**, **`gene_symbol`**, or **`HGNC`** if the header matches; else column 1 and the first row is data). **`STEP9_BONFERRONI_MAF_TESTS`** (green Bonferroni line on Manhattan PNGs, default **`3`**).
-- **SAIGE-GENE P columns (QQ / Manhattan / `qqdata` / `mandata` / `fullsum` thresholds):** merged output can include **`Pvalue`** (combined), **`Pvalue_Burden`**, and **`Pvalue_SKAT`**. Set **`STEP9_MANHATTAN_P_MODE`** to **`pvalue`** (default, combined only), **`burden`**, **`skat`**, or **`all`** (emit and plot every column that exists). Batch runs use this variable; **interactive** runs prompt for the same choice when Burden or SKAT columns are present. With **`all`**, data files and PNGs use suffixes **`_burden`** and **`_skat`** (e.g. **`qq_plot_burden.png`**); **`group_statistics.txt`** is written from the combined **`Pvalue`** run only.
-- **Cauchy rows:** **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — omit the Cauchy annotation group from plots only, from tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** = **`plots`** if mode unset.
-- **Ensembl (optional coordinates):** **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). Tuning: **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
-- **Reuse coordinate lookup:** **`STEP9_REUSE_COORD_LOOKUP`** = path to a saved **`.gene_coords_lookup.txt`** (tab: gene, chr, pos). Optional **`STEP9_REUSE_ENSEMBL_REPORT`** for the companion metrics file. When set, **`step9_analyze_results.sh`** skips rebuilding from a local coord file and skips Ensembl REST (**`step10_run_step9_all_folders.sh`** sets these automatically on cohort 2+ when parameters match).
+| Variable | Expected input | Typical values |
+|----------|----------------|----------------|
+| **`STEP9_MANHATTAN_P_MODE`** | Which *P* columns drive QQ/Manhattan / summaries | **`pvalue`** (default), **`burden`**, **`skat`**, **`all`** |
+| **`STEP9_CAUCHY_MODE`** | How to treat Cauchy annotation rows | **`off`**, **`plots`**, **`pipeline`**, **`full`** |
+| **`STEP9_PLOT_UNFILTERED`** | QQ/Manhattan for all groups × MAF | **`1`** (default) or **`0`** |
 
-**Interactive mode** also prompts for Manhattan label count, optional **extra gene labels** (comma list or path to a symbol file), and (if **`Pvalue_Burden`** / **`Pvalue_SKAT`** are in the table) which P column to use for QQ/Manhattan or whether to generate **all** three. Non-interactive runs rely on **`STEP9_MANHATTAN_P_MODE`** and the other env vars above.
+**More `STEP9_*` environment variables**
 
-**Presets (actual chain in script):** **`standard`** — detect_files, mergeall, listgroups, findsig, top50, groupsum, makeplots, fullsum. **`quick`** — detect_files, mergeall, listgroups, top50, makeplots, fullsum (no findsig or groupsum). **`full`** — detect_files, mergechrom, mergeall, listgroups, findsig, top10, top50, top100, chromsum, groupsum, makeplots, fullsum.
+| Topic | Variables |
+|-------|-----------|
+| **Plots / labels** | **`STEP9_PLOT_UNFILTERED`** (default **`1`**) · **`STEP9_MANHATTAN_LABEL_TOP_N`** · **`STEP9_MANHATTAN_LABEL_EXTRA`** (comma symbols) · **`STEP9_MANHATTAN_LABEL_EXTRA_FILE`** (tab: **`Gene`** / **`Symbol`** / col1) · **`STEP9_BONFERRONI_MAF_TESTS`** (default **`3`**) |
+| **Which *P* column** | Tables may have **`Pvalue`**, **`Pvalue_Burden`**, **`Pvalue_SKAT`**. **`STEP9_MANHATTAN_P_MODE`** = **`pvalue`** \| **`burden`** \| **`skat`** \| **`all`**. **`all`** → files suffixed **`_burden`** / **`_skat`**; **`group_statistics.txt`** stays combined **`Pvalue`** only. |
+| **Cauchy** | **`STEP9_CAUCHY_MODE`** = **`off`** \| **`plots`** \| **`pipeline`** \| **`full`**. **`all_results.txt`** never edited. Legacy: **`STEP9_EXCLUDE_CAUCHY=1`** ⇒ **`plots`**. |
+| **Ensembl tuning** | **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure). **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`** |
+| **Reuse lookups** | **`STEP9_REUSE_COORD_LOOKUP`** → saved **`.gene_coords_lookup.txt`**. **`STEP9_REUSE_ENSEMBL_REPORT`** optional. Step **10** sets these on cohort 2+ when args match. |
 
-**Common ops:** `mergechrom`, `mergeall`, `listgroups`; `findsig`, `findgws`, `findsug`, `findnom`; `top10`, `top50`, `top100`; `chromsum`, `groupsum`, `fullsum`; `qqdata`, `mandata`; **`plotdata`** and **`makeplots`** are **equivalent** (both refresh QQ/Manhattan plot data, write PNGs and **`group_statistics.txt`** when R is available; optional **`STEP9_MANHATTAN_P_MODE`** selects combined vs burden vs SKAT vs all).
+**Interactive vs non-interactive**
 
-**Artifacts:** `all_results.txt`, significance-tier files (main tier files use combined **`Pvalue`**; if Burden/SKAT columns exist, also **`genome_wide_sig_burden.txt`** / **`_skat.txt`**, and matching **`suggestive_sig_*`**, **`nominal_sig_*`**, **`sig_p001_*`**), `top*_genes.txt`, **`qq_plot_data.txt`** / **`manhattan_plot_data.txt`** (and **`*_burden`**, **`*_skat`** when multi-P), **`qq_plot.png`** / **`manhattan_plot.png`** (and optional **`qq_plot_burden.png`**, **`manhattan_plot_burden.png`**, **`*_skat.png`**), **`group_statistics.txt`** (from makeplots when R runs; combined P only), **`analysis_summary.txt`** from **`fullsum`** (threshold tables for **Pvalue**, **Pvalue_Burden**, and **Pvalue_SKAT** when present); helpers `.all_results_no_cauchy.txt` (when Cauchy is omitted from tables), `.gene_coords_lookup.txt`, **`.step9_generate_plots.R`** (written under the results directory when plot generation runs).
+| Mode | Behavior |
+|------|----------|
+| **Interactive** | Prompts: Manhattan label count, extra symbols, Burden/SKAT **P** mode if columns exist |
+| **Non-interactive** | Uses **`STEP9_MANHATTAN_P_MODE`** and env vars above |
+
+**Presets → operations run**
+
+| Preset | Pipeline |
+|--------|----------|
+| **`standard`** | detect_files → mergeall → listgroups → findsig → top50 → groupsum → makeplots → fullsum |
+| **`quick`** | detect_files → mergeall → listgroups → top50 → makeplots → fullsum *(no findsig / groupsum)* |
+| **`full`** | detect_files → mergechrom → mergeall → listgroups → findsig → top10 → top50 → top100 → chromsum → groupsum → makeplots → fullsum |
+
+**Single operations (examples)** — chain with **`+`**: `mergechrom`, `mergeall`, `listgroups`, `findsig`, `findgws`, `findsug`, `findnom`, `top10`, `top50`, `top100`, `chromsum`, `groupsum`, `fullsum`, `qqdata`, `mandata`. **`plotdata`** ≡ **`makeplots`**.
+
+**Main output files**
+
+| Category | Files |
+|----------|--------|
+| **Merged table** | **`all_results.txt`** |
+| **Significance tiers** | **`genome_wide_sig*.txt`**, **`suggestive_sig*.txt`**, **`nominal_sig*.txt`**, **`sig_p001*.txt`** (+ **`_*burden`** / **`_*skat`** files when present) |
+| **Gene lists** | **`top*_genes.txt`** |
+| **Plot data / PNG** | **`qq_plot_data*.txt`**, **`manhattan_plot_data*.txt`**, **`qq_plot*.png`**, **`manhattan_plot*.png`** |
+| **Summary** | **`group_statistics.txt`** (makeplots, combined **P**), **`analysis_summary.txt`** (fullsum) |
+| **Helpers** | **`.all_results_no_cauchy.txt`**, **`.gene_coords_lookup.txt`**, **`.step9_generate_plots.R`** |
 
 ```bash
 # Interactive (menu + prompts)
@@ -473,73 +572,103 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 STEP9_RESULTS_DIR=/path/to/out ./codes/step9_analyze_results.sh quick
 ```
 
+### Step 10 (batch Step 9: multiple cohort folders)
+
+- **Use Step 10:** Several sibling folders under one parent, each with **`chr*_combined_results.txt`**.
+- **Skip Step 10:** Only **one** SAIGE results directory → Step **9** alone.
+
+| Situation | Example command |
+|-----------|-----------------|
+| **One** results dir | `./codes/step9_analyze_results.sh --results-dir saige_results …` |
+| **Multiple** dirs | `./codes/step10_run_step9_all_folders.sh …` |
+
+CLI reference: **`./codes/step10_run_step9_all_folders.sh --help`**
+
+**What it does**
+
+| Action | Detail |
+|--------|--------|
+| Runs | **`step9_analyze_results.sh`** once per cohort subfolder |
+| Copies | **`*.png`** + main tables → **`SummaryResults/`** as **`COHORT_filename`** |
+
+| Argument / env | Expected input | Options / meaning |
+|----------------|----------------|-------------------|
+| **`-i`** / **`--interactive`** | No value | Prompts for Step 9–style options in the terminal; cannot combine with **`-- …`** Step 9 tail |
+| **`[COHORT …]`** | Names of child folders under the cohort root | Each folder must contain **`chr*_combined_results.txt`**; omit to auto-discover all qualifying folders |
+| **`--`** then Step 9 args | Same order as **`step9_analyze_results.sh`** | Forwarded to every cohort; **do not** pass **`--results-dir`** (the wrapper sets **`STEP9_RESULTS_DIR`** per folder). Omit **`--`** entirely → **`standard`** preset each cohort |
+| **`STEP9_COHORT_ROOT`** | Parent directory of **`AFR/`**, **`EUR/`**, … | Default: repo root when the script lives in **`codes/`**, else the script’s directory |
+| **`STEP9_SUMMARY_DIR`** | Where to copy prefixed **`COHORT_*`** artifacts | Default **`<cohort_root>/SummaryResults`** |
+
+```bash
+chmod +x codes/step10_run_step9_all_folders.sh
+
+# Repository root = parent of cohort folders + SummaryResults (wrapper in codes/ uses parent as cohort root).
+./codes/step10_run_step9_all_folders.sh                     # all qualifying cohort folders → step9 standard each
+./codes/step10_run_step9_all_folders.sh AFR EUR Pooled      # only these folders
+
+# Non-interactive: step9 args after `--` (omit `--results-dir`; wrapper sets STEP9_RESULTS_DIR per cohort).
+./codes/step10_run_step9_all_folders.sh -- quick
+./codes/step10_run_step9_all_folders.sh AFR EUR -- standard /path/gene_coords.tsv midpoint lof 0.01
+
+# Interactive (terminal required): shared vs per-cohort parameters.
+./codes/step10_run_step9_all_folders.sh --interactive
+./codes/step10_run_step9_all_folders.sh -i AFR EUR
+```
+
+**Paths**
+
+| Env var | Role | Default |
+|---------|------|---------|
+| **`STEP9_COHORT_ROOT`** | Parent of **`AFR/`**, **`EUR/`**, … | Repo root if script is under **`codes/`**, else script dir |
+| **`STEP9_SUMMARY_DIR`** | Prefixed copies destination | **`<cohort_root>/SummaryResults`** |
+
+**Behavior**
+
+| Topic | Rule |
+|-------|------|
+| **Default preset** | No **`-- …`** tail → **`standard`** per cohort (same as Step 9 CLI) |
+| **After `--`** | Tokens forwarded to **`step9_analyze_results.sh`** every cohort (**omit `--results-dir`**) |
+| **Env** | **`STEP9_*`** vars apply to each cohort run |
+| **`-i` / `--interactive`** | 2+ cohorts: prompt **same params for all?** — **Y** once, **N** per cohort. **Never** mix **`-i`** with **`-- …`** Step 9 args |
+
+**Performance**
+
+| Mechanism | Effect |
+|-----------|--------|
+| Step 9 **`fullsum`** per cohort | Single-pass counts; may reuse **`annotation_group_summary`** |
+| Coordinate cache | Same Step 9 args → cohort **1** builds lookup; cohort **2+** use **`.step9_batch_coord_cache/<hash>/`** (**`STEP9_COORD_CACHE_DIR`**) |
+| Caveat | Sequence-only Manhattan skips cache; missing genes → **NA** on plots |
+
+**Long runs** — log to file:
+
+```bash
+nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
+```
+
 ---
 
 ## Important notes
 
-- Pre-built **gene coordinates** (e.g. `gene_coords_ensembl115.tar.gz`) can replace Step 4 when the Ensembl release matches your VEP build.
-- Step **5** optional args: **`buffer_kb`**, **`force_regen`**, **`merge_regen`** — details under Step 5 above.
-- Step **6** last argument **`genes_per_chunk`**: **`0`** = one output per chromosome; **`20`**–**`50`** typical when RAM is tight.
-- SAIGE config: use **`r_corr`** in the file (not **`r.corr`**); **`annotation_in_groupTest`** uses **colons** between masks.
-
-## Quality Control
-
-**After Step 1:**
-```bash
-awk -F'\t' 'NR>1 {print $6}' chr1_anno.txt | sort | uniq -c
-```
-
-**After Step 2:**
-```bash
-awk '{
-  if(NR%2==1) var_count=NF-2
-  else {
-    anno_count=NF-2
-    if(var_count != anno_count) print "Mismatch at line " NR
-  }
-}' chr1_groups.txt
-
-awk '{if(NR%2==1) print $1}' chr1_groups.txt | sort | uniq -d
-```
-
-**After Step 3:**
-```bash
-wc -l all_genes_groups.txt
-
-awk '{if(NR%2==1) print $1}' all_genes_groups.txt | sort -u | wc -l
-```
-
-**After Step 5:**
-```bash
-# Check matched genes
-wc -l plink_regions/matched_genes.txt
-
-# Review missing genes
-cat plink_regions/missing_genes.txt
-```
-
-**After Step 6:**
-```bash
-# Check extraction summary
-column -t -s $'\t' gene_pfiles/extraction_summary.txt
-
-# Verify variant counts
-for chr in {1..22}; do
-  echo "chr${chr}: $(wc -l < gene_pfiles/chr${chr}_genes.pvar) variants"
-done
-```
+| Topic | Note |
+|-------|------|
+| Pre-built **`gene_coords_*.tar.gz`** | Can replace Step **4** if Ensembl release matches VEP |
+| Step **5** optionals | **`buffer_kb`**, **`force_regen`**, **`merge_regen`** — see **Step 5** section above |
+| Step **6** **`genes_per_chunk`** | **`0`** = whole chr per file; **`20`–`50`** if RAM-limited |
+| SAIGE config file | Use **`r_corr`** (not **`r.corr`**); **`annotation_in_groupTest`** masks separated by **colons** |
 
 ---
 
 ## Troubleshooting
 
-**Windows line endings:**
+#### Windows line endings
+
 ```bash
 sed -i '' 's/\r$//' codes/*.sh   # GNU sed: sed -i 's/\r$//' codes/*.sh
 chmod +x codes/*.sh
 ```
 
-**LSF cluster submission:**
+#### LSF: run Step 1 per chromosome
+
 ```bash
 for chr in {1..22}; do
   bsub -q normal -n 4 -R "rusage[mem=8GB]" \
@@ -547,39 +676,37 @@ for chr in {1..22}; do
 done
 ```
 
-**Input file not found:**
+#### Input file not found
+
 ```bash
-# Use absolute paths
 ./codes/step1_vep_ann_clean.sh /full/path/to/input.vcf.gz output.txt
 ```
 
-**PLINK2 memory issues:**
+#### PLINK2 out of memory
+
 ```bash
-# Increase memory limit
 plink2 --pfile input --memory 16000 --threads 8 ...
 ```
 
-**Missing genes in Step 5:**
-```bash
-# Check Ensembl version matches VEP version
-# Review missing_genes.txt for outdated/retired gene symbols
-# Consider using alternative gene names or ENSG IDs
-```
+#### Missing genes (Step 5)
 
-**Format detection fails in Step 6:**
+- Match Ensembl version to VEP
+- Read **`missing_genes.txt`**
+- Try alternate symbols / ENSG IDs
+
+#### Step 6 format auto-detect fails
+
 ```bash
-# Manually specify format
 ./codes/step6_extract_genotypes_plink2a.sh /data/geno plink_regions out 8 vcf vcf chr 0
 ```
 
-**BGEN conversion for SAIGE:**
+#### PGEN → BGEN for SAIGE
+
 ```bash
-# Convert PGEN to BGEN (v1.2, 8-bit for SAIGE compatibility)
 plink2 --pfile chr1_genes \
        --export bgen-1.2 bits=8 \
        --out chr1_genes_bgen
 
-# Index BGEN file
 bgenix -g chr1_genes_bgen.bgen -index
 ```
 
@@ -602,4 +729,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.0.1 | Last updated: 2026-05-06*
+*Version 2.1.0 | Last updated: 2026-05-06*
