@@ -8,9 +8,10 @@ Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run g
 - [Clone and setup](#clone-and-setup)
 - [Quick Start: Full Pipeline](#quick-start-full-pipeline)
 - [Quick Start: Alternative Workflows](#quick-start-alternative-workflows)
+- [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders)
 - [Expected output structure](#expected-output-structure)
 - [Requirements](#requirements)
-- [Pipeline scripts (steps 1-9)](#pipeline-scripts-steps-1-9)
+- [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10)
 - [Important notes](#important-notes)
 - [Quality Control](#quality-control)
 - [Troubleshooting](#troubleshooting)
@@ -88,6 +89,8 @@ EOF
 
 ./codes/step9_analyze_results.sh --results-dir saige_results standard
 ```
+
+If you later maintain **multiple SAIGE output directories** as sibling folders (e.g. one per ancestry), use **`step10_run_step9_all_folders.sh`** (pipeline Step 10) — see [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders).
 
 ---
 
@@ -209,7 +212,55 @@ EOF
 ./codes/step9_analyze_results.sh --results-dir saige_results standard
 ```
 
---- 
+---
+
+## Step 10 (batch Step 9: multiple cohort folders)
+
+**Choose this vs single-folder Step 9**
+
+| Situation | Command |
+|-----------|---------|
+| One SAIGE output directory | `./codes/step9_analyze_results.sh --results-dir saige_results …` |
+| Several sibling directories (`AFR/`, `EUR/`, …), each with `chr*_combined_results.txt` | `./codes/step10_run_step9_all_folders.sh …` |
+
+Use **Step 10** when outputs are **separate sibling folders** (e.g. one per ancestry). Full wrapper documentation: **`./codes/step10_run_step9_all_folders.sh --help`**.
+
+**Script:** `codes/step10_run_step9_all_folders.sh` — next to `step9_analyze_results.sh`; runs step9 once per qualifying subfolder, then copies plots (`*.png`) and main tables into **`SummaryResults/`** with folder-name prefixes (`AFR_qq_plot.png`, `EUR_analysis_summary.txt`, …).
+
+```bash
+chmod +x codes/step10_run_step9_all_folders.sh
+
+# Repository root = parent of cohort folders + SummaryResults (wrapper in codes/ uses parent as cohort root).
+./codes/step10_run_step9_all_folders.sh                     # all qualifying cohort folders → step9 standard each
+./codes/step10_run_step9_all_folders.sh AFR EUR Pooled      # only these folders
+
+# Non-interactive: step9 args after `--` (omit `--results-dir`; wrapper sets STEP9_RESULTS_DIR per cohort).
+./codes/step10_run_step9_all_folders.sh -- quick
+./codes/step10_run_step9_all_folders.sh AFR EUR -- standard /path/gene_coords.tsv midpoint lof 0.01
+
+# Interactive (terminal required): shared vs per-cohort parameters.
+./codes/step10_run_step9_all_folders.sh --interactive
+./codes/step10_run_step9_all_folders.sh -i AFR EUR
+```
+
+**Layout:** Cohort folders sit under **`STEP9_COHORT_ROOT`** (default: repo root if `codes/step10_run_step9_all_folders.sh`; otherwise directory containing the script). Override **`STEP9_COHORT_ROOT`** if cohorts live elsewhere. **`STEP9_SUMMARY_DIR`** overrides copy destination (default **`<cohort_root>/SummaryResults`**).
+
+**Defaults:** No `-- …` tail ⇒ **`standard`** preset per folder, same as running step9 manually. After **`--`**, arguments are forwarded to **`step9_analyze_results.sh`** for every cohort. Env vars (`STEP9_CAUCHY_MODE`, `STEP9_PLOT_UNFILTERED`, `STEP9_MANHATTAN_P_MODE`, …) apply to each run.
+
+**Interactive (`-i`):** With 2+ cohorts, **`Use the same step9 parameters for all … ? [Y/n]`** — **Yes** = one prompt for all; **No** = prompt per cohort. One cohort ⇒ single prompt (no extra question). Do not combine **`-i`** with **`-- …`** step9 args.
+
+**Performance**
+
+- **Step 9 `fullsum`:** Counts use a **single pass** over the merged table; the **annotation_group_summary** section is **reused** from `groupsum` when inputs align (avoids duplicate heavy work).
+- **Step 10:** With **identical** step9 arguments across cohorts, **gene coordinate / Ensembl** work runs on cohort 1; cohort 2+ read **`STEP9_REUSE_COORD_LOOKUP`** from **`<cohort_root>/.step9_batch_coord_cache/<hash>/`** (override **`STEP9_COORD_CACHE_DIR`**). Sequence-only Manhattan does not use this cache. Genes missing from the cached map can show as **NA** on plots—usually acceptable when cohorts share the same gene panel.
+
+**Long runs:** Multi-cohort passes can take hours; capture logs:
+
+```bash
+nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
+```
+
+---
 
 ## Expected output structure
 
@@ -239,7 +290,8 @@ EOF
 # │   ├── chr*_chunk*_results.txt    # If MERGE_CHUNKS=no
 # │   ├── saige_run_summary.txt
 # │   ├── saige_run.log
-# └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh)
+# ├── SummaryResults/            # Optional: Step 10 (`step10_run_step9_all_folders.sh`): prefixed PNGs + tables per cohort
+# └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh, step10_run_step9_all_folders.sh)
 ```
 
 ---
@@ -256,7 +308,7 @@ EOF
 ---
 
 
-## Pipeline scripts (steps 1-9)
+## Pipeline scripts (steps 1-10)
 
 Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, or **`export PATH="$PWD/codes:$PATH"`**.
 
@@ -271,8 +323,9 @@ Scripts are under **`codes/`**. Use **`./codes/<script>.sh`**, **`cd codes`**, o
 | 7 | `step7_verify_extraction.sh` | QC vs region lists |
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + run test jobs |
 | 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | Merge & summarize SAIGE-GENE results; QQ/Manhattan for **`Pvalue`** / **`Pvalue_Burden`** / **`Pvalue_SKAT`** (**`STEP9_MANHATTAN_P_MODE`**) |
+| 10 | `step10_run_step9_all_folders.sh` | Optional: **Step 10** — run Step 9 per sibling **`chr*_combined_results.txt`** folder; **`--help`**; prefixed PNGs/tables → **`SummaryResults/`** (see [Step 10 section](#step-10-batch-step-9-multiple-cohort-folders)) |
 
-**Performance (recent versions):** Step **4** streams `all_genes_coords.txt` once per build (not one full scan per chromosome). Step **5** uses **one `awk` per chromosome** for filter + BED + gene list (no huge temp match files). Steps **1**, **3**, and **6** use lighter counting/parsing (e.g. **1**: awk + one numeric sort per table; **3**: var lines only `NR%2==1`; **6**: no GNU-only `grep -P` so macOS stays portable).
+**Performance (recent versions):** Step **4** streams `all_genes_coords.txt` once per build (not one full scan per chromosome). Step **5** uses **one `awk` per chromosome** for filter + BED + gene list (no huge temp match files). Steps **1**, **3**, and **6** use lighter counting/parsing (e.g. **1**: awk + one numeric sort per table; **3**: var lines only `NR%2==1`; **6**: no GNU-only `grep -P` so macOS stays portable). Step **9** **`fullsum`**: one pass over the merged table for significance counts; **annotation_group_summary** block reused from **`groupsum`** when the summary input matches. **`step10_run_step9_all_folders.sh`**: caches coordinate / Ensembl lookups under **`.step9_batch_coord_cache/`** for cohort 2+ when step9 arguments match.
 
 ### Step 1 — `step1_vep_ann_clean.sh`
 
@@ -363,6 +416,8 @@ Requires **`plink2a`** (optional **`module`** load). **`output_fmt` / `input_fmt
 
 **Script:** `codes/step9_analyze_results.sh`. Reads SAIGE-GENE chromosome outputs (`chr*_combined_results.txt`, `chr*_chunk*_results.txt`, or `chr*_all_results.txt`). **Default results directory is `.`** — override with **`--results-dir`**, **`-d`**, **`--dir`**, or **`STEP9_RESULTS_DIR`** so the script need not sit next to outputs.
 
+**Step 10 wrapper (optional):** `codes/step10_run_step9_all_folders.sh` — runs Step 9 across multiple sibling results directories and aggregates prefixed plots/tables under **`SummaryResults/`**. See [Step 10 (batch Step 9: multiple cohort folders)](#step-10-batch-step-9-multiple-cohort-folders).
+
 **Wrapper (optional):** `codes/step9_noninteractive_example.sh` — edit the CONFIG block or pass env vars (`RESULTS_DIR`, `STEP9_SCRIPT`, `OPERATIONS`, `PRESET`, **`STEP9_MANHATTAN_P_MODE`**, etc.); runs `step9_analyze_results.sh` (same repo folder by default). Example:
 
 ```bash
@@ -400,6 +455,7 @@ RESULTS_DIR=/path/to/saige_out PRESET=quick ./codes/step9_noninteractive_example
 - **SAIGE-GENE P columns (QQ / Manhattan / `qqdata` / `mandata` / `fullsum` thresholds):** merged output can include **`Pvalue`** (combined), **`Pvalue_Burden`**, and **`Pvalue_SKAT`**. Set **`STEP9_MANHATTAN_P_MODE`** to **`pvalue`** (default, combined only), **`burden`**, **`skat`**, or **`all`** (emit and plot every column that exists). Batch runs use this variable; **interactive** runs prompt for the same choice when Burden or SKAT columns are present. With **`all`**, data files and PNGs use suffixes **`_burden`** and **`_skat`** (e.g. **`qq_plot_burden.png`**); **`group_statistics.txt`** is written from the combined **`Pvalue`** run only.
 - **Cauchy rows:** **`STEP9_CAUCHY_MODE`** = **`off`**, **`plots`**, **`pipeline`**, or **`full`** — omit the Cauchy annotation group from plots only, from tables, or from full-summary totals (**`all_results.txt`** is never edited). Legacy **`STEP9_EXCLUDE_CAUCHY=1`** = **`plots`** if mode unset.
 - **Ensembl (optional coordinates):** **`STEP9_ENSEMBL_SSL_VERIFY`** (`0` = insecure fallback). Tuning: **`STEP9_ENSEMBL_BATCH_SIZE`**, **`STEP9_ENSEMBL_PARALLEL`**, **`STEP9_ENSEMBL_POST_TIMEOUT`**.
+- **Reuse coordinate lookup:** **`STEP9_REUSE_COORD_LOOKUP`** = path to a saved **`.gene_coords_lookup.txt`** (tab: gene, chr, pos). Optional **`STEP9_REUSE_ENSEMBL_REPORT`** for the companion metrics file. When set, **`step9_analyze_results.sh`** skips rebuilding from a local coord file and skips Ensembl REST (**`step10_run_step9_all_folders.sh`** sets these automatically on cohort 2+ when parameters match).
 
 **Interactive mode** also prompts for Manhattan label count, optional **extra gene labels** (comma list or path to a symbol file), and (if **`Pvalue_Burden`** / **`Pvalue_SKAT`** are in the table) which P column to use for QQ/Manhattan or whether to generate **all** three. Non-interactive runs rely on **`STEP9_MANHATTAN_P_MODE`** and the other env vars above.
 
@@ -546,4 +602,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.0.0 | Last updated: 2026-05-02*
+*Version 2.0.1 | Last updated: 2026-05-06*
