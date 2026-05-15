@@ -18,7 +18,7 @@ Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run g
 
 - [Expected output structure](#expected-output-structure)
 - [Requirements](#requirements)
-- [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) — Step **9** = one results folder; Step **10** = multiple folders (documented after Step 9)
+- [Pipeline scripts (steps 1-11)](#pipeline-scripts-steps-1-11) — Step **9** = one results folder; Step **10** = multiple folders (documented after Step 9); Step **11** = SAIGE groups → REGENIE anno/set-list (optional REGENIE burden workflow)
 
 **Notes and troubleshooting**
 
@@ -39,6 +39,7 @@ Convert VEP-annotated VCF files into SAIGE-compatible gene group files and run g
 | **Genotypes** | Extract per-gene regions (**BGEN**, **PLINK**, **PGEN**, **VCF**) |
 | **SAIGE-GENE** | Burden + SKAT-O tests genome-wide |
 | **Summarize & plots** | **Step 9** = one output dir · **Step 10** = batch many dirs → **`SummaryResults/`** |
+| **Optional: SAIGE → REGENIE** | **Step 11** (optional) — SAIGE **`chr*_group.txt`** → per-chr **`--anno-file`** / **`--set-list`** + **`mask_def.example.txt`** (**`step11_saige_group_to_regenie.sh`**) |
 
 ---
 
@@ -111,7 +112,7 @@ EOF
 # ./codes/step10_run_step9_all_folders.sh -i AFR EUR AMR       # interactive; Y = same params for all folders
 ```
 
-*Further detail: [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
+*Further detail: [Pipeline scripts (steps 1-11)](#pipeline-scripts-steps-1-11) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
 
 ---
 
@@ -241,7 +242,7 @@ EOF
 # ./codes/step10_run_step9_all_folders.sh -i AFR EUR AMR
 ```
 
-*Further detail: [Pipeline scripts (steps 1-10)](#pipeline-scripts-steps-1-10) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
+*Further detail: [Pipeline scripts (steps 1-11)](#pipeline-scripts-steps-1-11) → [Step 10](#step-10-batch-step-9-multiple-cohort-folders).*
 
 ---
 
@@ -274,6 +275,7 @@ EOF
 # │   ├── saige_run_summary.txt
 # │   ├── saige_run.log
 # ├── SummaryResults/            # Step 10 only (multiple cohort folders): prefixed PNGs + tables per cohort
+# ├── regenie_masks_from_saige/ # Step 11 optional: chrNN/chrNN.regenie.annotations.txt, chrNN/chrNN.regenie.setlist.txt, mask_def.example.txt
 # └── codes/*.sh                 # Pipeline scripts (incl. step9_analyze_results.sh, step9_noninteractive_example.sh, step10_run_step9_all_folders.sh)
 ```
 
@@ -296,7 +298,7 @@ EOF
 
 ---
 
-## Pipeline scripts (steps 1-10)
+## Pipeline scripts (steps 1-11)
 
 **How to run scripts**
 
@@ -324,6 +326,7 @@ EOF
 | 8 | `step8_pre1_build_saige_config.sh`, `step8_pre2_validate_saige_config.sh`, `step8_run_saige_gene_tests.sh` | SAIGE-GENE config + run test jobs |
 | 9 | `step9_analyze_results.sh` (optional `step9_noninteractive_example.sh`) | **Single results folder** — merge & summarize SAIGE-GENE outputs; QQ/Manhattan (**`STEP9_MANHATTAN_P_MODE`**) |
 | 10 | `step10_run_step9_all_folders.sh` | **Multiple results folders** — run Step 9 once per folder; **`--help`**; prefixed copies → **`SummaryResults/`** ([Step 10](#step-10-batch-step-9-multiple-cohort-folders)) |
+| 11 | `step11_saige_group_to_regenie.sh` | SAIGE **`chr*_group.txt`** → REGENIE **`--anno-file`** / **`--set-list`** per chromosome + example **`--mask-def`** (**Step 11** below) |
 
 **Performance (recent versions)**
 
@@ -645,6 +648,30 @@ chmod +x codes/step10_run_step9_all_folders.sh
 nohup ./codes/step10_run_step9_all_folders.sh > step10_all_folders.log 2>&1 &
 ```
 
+### Step 11 — `step11_saige_group_to_regenie.sh`
+
+Convert SAIGE gene-group files (**`GENE var …`** / **`GENE anno …`** blocks, optionally **`GENE weight …`**) into REGENIE burden-test inputs: tab-separated **annotation** files (**`--anno-file`**), **set-list** files (**`--set-list`**), and an example **mask-definition** file (**`--mask-def`**). **`step11_saige_group_to_regenie.sh`** is bash-only. Align mask tokens with Milind et al.–style LoF masks (e.g. MAF below 1%) when configuring REGENIE.
+
+```bash
+./codes/step11_saige_group_to_regenie.sh
+```
+
+| Variable / EDIT block | Expected input | Options / default |
+|----------|----------------|-------------------|
+| `SAIGE_GROUP_DIR` / **`SAIGE_GROUP_DIR_DEFAULT`** | Directory containing per-chromosome **`chr##_group.txt`** or **`chr#_group.txt`** (autosomes **1–22**) | Default **`./saige_groups`** |
+| `OUT_DIR` / **`OUT_DIR_DEFAULT`** | Output root for **`chrNN/`** subfolders | Default **`./regenie_masks_from_saige`** |
+| **`STRIP_CHR_PREFIX`** | If **`1`**, strip a leading **`chr`** from variant IDs in anno/set-list rows | Default **`0`** |
+
+**Outputs (under `OUT_DIR`)**
+
+| Path | Role |
+|------|------|
+| **`chrNN/chrNN.regenie.annotations.txt`** | Variant ID ↔ gene/set ↔ annotation token (**`--anno-file`**) |
+| **`chrNN/chrNN.regenie.setlist.txt`** | Gene/set ↔ chromosome ↔ min position ↔ comma-separated variant IDs (**`--set-list`**) |
+| **`mask_def.example.txt`** | Example **`--mask-def`** template — edit so the second column lists tokens **exactly** as they appear in the anno lines |
+
+Requires **bash** only (no **`awk`**). **Windows CRLF** in the script breaks **`set -o pipefail`** — run **`dos2unix`** on the script if needed.
+
 ---
 
 ## Important notes
@@ -729,4 +756,4 @@ bgenix -g chr1_genes_bgen.bgen -index
 
 ---
 
-*Version 2.1.0 | Last updated: 2026-05-06*
+*Version 2.1.2 | Last updated: 2026-05-15*
