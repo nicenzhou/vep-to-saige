@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SAIGE group -> regenie (bash only; no awk). See Milind et al. medRxiv 2024.11.11.24317065v2
+# SAIGE group -> regenie annotation files and mask def files.
 # for REGENIE burden settings (LoF MAF < 1%, etc.).
 #
 # Edit paths in the block below, then run:  bash step11_saige_group_to_regenie.sh
