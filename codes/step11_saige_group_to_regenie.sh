@@ -2,7 +2,7 @@
 # SAIGE group -> regenie (bash only; no awk). See Milind et al. medRxiv 2024.11.11.24317065v2
 # for REGENIE burden settings (LoF MAF < 1%, etc.).
 #
-# Edit paths in the block below, then run:  bash saige_group_to_regenie_plain.sh
+# Edit paths in the block below, then run:  bash step11_saige_group_to_regenie.sh
 # Environment variables still override these defaults when set.
 # If you see "set: pipefail" / "invalid option", the file has Windows (CRLF) line endings — run: dos2unix this_file
 #
